@@ -31,8 +31,8 @@ targets:
       properties:
         CFBundleDisplayName: CacaoPhotoSlide
         CFBundleName: CacaoPhotoSlide
-        CFBundleShortVersionString: "1.0.3"
-        CFBundleVersion: "1.0.3"
+        CFBundleShortVersionString: "2.0.0"
+        CFBundleVersion: "2.0.0"
         LSMinimumSystemVersion: "14.0"
         CFBundleDevelopmentRegion: ja
         CFBundleLocalizations: [ja, en]

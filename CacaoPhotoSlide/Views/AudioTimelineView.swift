@@ -52,7 +52,7 @@ struct AudioTimelineView: View {
                     }
                     // 空の段の案内
                     let emptyLane = model.trackCount - 1
-                    Text(model.clips.isEmpty ? "ここに音声ファイルをドロップ（置いた位置から鳴ります）" : "ここに落とすと新しいトラック（段を分ければ重ねて置けます）")
+                    Text(model.clips.isEmpty ? "ここに音声ファイルをドロップ（置いた位置から鳴ります）" : "ここに落とすと新しいトラック（ファイルでも、置いてあるクリップでも）")
                         .font(.caption).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .offset(y: laneY(emptyLane) + 5)
@@ -132,14 +132,22 @@ struct AudioTimelineView: View {
         .gesture(
             DragGesture(minimumDistance: 2)
                 .onChanged { v in
-                    if dragOrigin[clip.id] == nil { dragOrigin[clip.id] = (clip.start, clip.track); model.selectedClip = clip.id }
+                    if dragOrigin[clip.id] == nil {
+                        dragOrigin[clip.id] = (clip.start, clip.track)
+                        model.selectedClip = clip.id
+                        model.frozenTrackCount = model.trackCount     // ドラッグ中は段の数を固定
+                    }
                     let origin = dragOrigin[clip.id] ?? (clip.start, clip.track)
                     let snapSeconds = 6 / w * total
-                    // 上下は、使っている段の範囲だけ（一番下の空の段は新しいファイルを落とすとき専用。動かしても段は増えない）
-                    let lane = min(model.trackCount - 2, max(0, origin.track + Int((v.translation.height / laneStep).rounded())))
+                    // 上下で段を変える。一番下の空の段に入れれば新しいトラック
+                    let lane = min(model.trackCount - 1, max(0, origin.track + Int((v.translation.height / laneStep).rounded())))
                     model.moveClip(clip.id, to: origin.start + Double(v.translation.width / w) * total, snap: snapSeconds, track: lane)
                 }
-                .onEnded { _ in dragOrigin[clip.id] = nil; model.compactTracks() }
+                .onEnded { _ in
+                    dragOrigin[clip.id] = nil
+                    model.frozenTrackCount = nil
+                    model.compactTracks()       // 空いた段を詰めて、空の段を改めて 1 つ出す
+                }
         )
         .contextMenu {
             Button("削除") { model.removeClip(clip.id) }
@@ -195,6 +203,18 @@ struct AudioTimelineView: View {
                             .frame(width: 90)
                         Text("\(Int((clip.volume * 100).rounded())) %").monospacedDigit().frame(width: 40, alignment: .trailing)
                     }
+                    // 段（トラック）を変える。「新しいトラック」を選ぶと段が増える
+                    let usedLanes = model.trackCount - 1
+                    Picker("トラック", selection: Binding(get: { min(clip.track, usedLanes) }, set: { model.setTrack(id, $0) })) {
+                        ForEach(0..<usedLanes, id: \.self) { lane in
+                            Label("トラック \(lane + 1)", systemImage: "circle.fill").tag(lane)
+                                .foregroundStyle(TrackColors.color(lane))
+                        }
+                        Divider()
+                        Text("新しいトラック").tag(usedLanes)
+                    }
+                    .frame(width: 150)
+                    .help("このクリップを別の段へ。「新しいトラック」で段を増やす")
                     Spacer()
                     Button(role: .destructive) { model.removeClip(id) } label: { Image(systemName: "trash") }
                         .help("このクリップを外す")

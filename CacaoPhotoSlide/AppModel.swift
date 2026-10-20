@@ -271,8 +271,9 @@ final class AppModel {
         }
     }
 
-    /// 段の数（使っている段 + 落とすための空の段 1 つ。最低 2 段）
-    var trackCount: Int { max(2, (clips.map(\.track).max() ?? -1) + 2) }
+    /// 段の数（使っている段 + 落とすための空の段 1 つ。最低 2 段）。ドラッグ中は固定して、段が次々に生えないようにする
+    var trackCount: Int { frozenTrackCount ?? max(2, (clips.map(\.track).max() ?? -1) + 2) }
+    var frozenTrackCount: Int?
 
     /// 同じ段で時間が重なっているクリップを、別の段に振り分ける（古い書類や、重ねて置いたとき）
     func resolveOverlaps() {
@@ -287,6 +288,13 @@ final class AppModel {
         }
         let byID = Dictionary(uniqueKeysWithValues: placed.map { ($0.id, $0.track) })
         for i in clips.indices { clips[i].track = byID[clips[i].id] ?? clips[i].track }
+    }
+
+    /// クリップを別の段へ（lane が使っている段の数と同じなら新しい段）。空いた段は詰める
+    func setTrack(_ id: UUID, _ lane: Int) {
+        guard let i = clips.firstIndex(where: { $0.id == id }) else { return }
+        clips[i].track = max(0, lane)
+        compactTracks()
     }
 
     /// 使っていない段を詰める
