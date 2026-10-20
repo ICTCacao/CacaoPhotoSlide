@@ -64,30 +64,73 @@ struct ContentView: View {
                 }
                 Button("開く…") { model.openPanel() }
             }
+            HStack(spacing: 6) {
+                if let label = model.startLabel {
+                    Image(systemName: "play.circle.fill").foregroundStyle(Color.accentColor)
+                    Text("開始: \(label)").lineLimit(1).truncationMode(.middle)
+                    Button {
+                        model.startIndex = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("最初の写真から始める")
+                } else {
+                    Text("写真をクリックすると、そこから始めます（ダブルクリックですぐ開始）")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.callout)
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 6)], spacing: 6) {
-                    ForEach(Array(model.thumbnails.enumerated()), id: \.offset) { _, cg in
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.15))
-                            if let cg {
-                                Image(decorative: cg, scale: 1)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                            }
-                        }
-                        .frame(width: 64, height: 64)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    ForEach(model.photos.indices, id: \.self) { i in
+                        thumbnailCell(i)
                     }
                 }
-                if model.photos.count > model.thumbnails.count {
-                    Text("ほか \(model.photos.count - model.thumbnails.count) 枚")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .padding(.top, 4)
-                }
+                .padding(2)
             }
         }
         .padding(14)
+    }
+
+    private func thumbnailCell(_ i: Int) -> some View {
+        let selected = model.startIndex == i
+        return Button {
+            model.startIndex = i
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.15))
+                if let cg = model.thumbnails[i] {
+                    Image(decorative: cg, scale: 1)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                }
+            }
+            .frame(width: 64, height: 64)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                if selected {
+                    RoundedRectangle(cornerRadius: 6).strokeBorder(Color.accentColor, lineWidth: 3)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if selected {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(.white, Color.accentColor)
+                        .padding(3)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
+            model.startIndex = i
+            model.startSlideshow()
+        })
+        .help("\(i + 1) / \(model.photos.count)  \(model.photos[i].lastPathComponent)")
+        .onAppear { model.requestThumbnail(i) }
+        .onDisappear { model.cancelThumbnail(i) }
     }
 
     private var sourceTitle: String {

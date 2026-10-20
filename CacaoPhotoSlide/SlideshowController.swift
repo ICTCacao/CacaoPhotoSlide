@@ -70,7 +70,7 @@ final class SlideshowController {
         self.loader = ImageLoader(urls: urls, maxPixel: maxPixel)
     }
 
-    func start() { show(0, direction: 1, manual: false) }
+    func start(at index: Int = 0) { show(min(max(0, index), max(0, count - 1)), direction: 1, manual: false) }
 
     func stop() {
         advanceTask?.cancel(); showTask?.cancel(); holdTask?.cancel(); clearTask?.cancel()

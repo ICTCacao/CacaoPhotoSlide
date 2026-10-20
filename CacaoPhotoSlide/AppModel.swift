@@ -7,7 +7,8 @@ final class AppModel {
 
     var sources: [URL] = []           // ドロップされたフォルダやファイル
     var photos: [URL] = []
-    var thumbnails: [CGImage?] = []   // 先頭の数枚ぶん
+    var thumbnails: [Int: CGImage] = [:]   // 画面に見えた順に読む
+    var startIndex: Int?                   // クリックで選んだ開始写真（nil なら最初から）
     var isScanning = false
     var message: String?
     var isShowing = false
@@ -20,9 +21,8 @@ final class AppModel {
     var recursive: Bool { didSet { ud.set(recursive, forKey: Prefs.recursive); if recursive != oldValue { rescan() } } }
     var fit: FitMode { didSet { ud.set(fit.rawValue, forKey: Prefs.fit) } }
 
-    static let thumbnailCount = 24
     private var scanTask: Task<Void, Never>?
-    private var thumbTask: Task<Void, Never>?
+    private var thumbTasks: [Int: Task<Void, Never>] = [:]
     private var window: SlideshowWindow?
     private weak var returnWindow: NSWindow?
 
@@ -55,8 +55,11 @@ final class AppModel {
 
     func rescan() {
         scanTask?.cancel()
-        thumbTask?.cancel()
-        guard !sources.isEmpty else { photos = []; thumbnails = []; return }
+        for t in thumbTasks.values { t.cancel() }
+        thumbTasks = [:]
+        thumbnails = [:]
+        startIndex = nil
+        guard !sources.isEmpty else { photos = []; return }
         let srcs = sources, rec = recursive, ord = order
         isScanning = true
         message = nil
@@ -68,23 +71,30 @@ final class AppModel {
             photos = list
             isScanning = false
             message = list.isEmpty ? "写真が見つかりませんでした" : nil
-            loadThumbnails()
         }
     }
 
-    private func loadThumbnails() {
-        let targets = Array(photos.prefix(Self.thumbnailCount))
-        thumbnails = Array(repeating: nil, count: targets.count)
-        thumbTask = Task.detached(priority: .utility) { [weak self] in
-            for (i, url) in targets.enumerated() {
-                guard !Task.isCancelled else { return }
-                let img = ImageLoader.decode(url, maxPixel: 160)
-                await MainActor.run { [weak self] in
-                    guard let self, i < thumbnails.count else { return }
-                    thumbnails[i] = img
-                }
-            }
+    /// サムネイルが画面に出たら読む（読み終わったものは持っておく）
+    func requestThumbnail(_ i: Int) {
+        guard photos.indices.contains(i), thumbnails[i] == nil, thumbTasks[i] == nil else { return }
+        let url = photos[i]
+        thumbTasks[i] = Task { [weak self] in
+            let img = await Task.detached(priority: .utility) { ImageLoader.decode(url, maxPixel: 128) }.value
+            guard let self, !Task.isCancelled else { return }
+            thumbTasks[i] = nil
+            if let img { thumbnails[i] = img }
         }
+    }
+
+    func cancelThumbnail(_ i: Int) {
+        thumbTasks[i]?.cancel()
+        thumbTasks[i] = nil
+    }
+
+    /// 開始写真の表示用（「12 枚目  IMG_0012.jpg」）
+    var startLabel: String? {
+        guard let i = startIndex, photos.indices.contains(i) else { return nil }
+        return "\(i + 1) 枚目  \(photos[i].lastPathComponent)"
     }
 
     // MARK: 開く・Finder
@@ -110,7 +120,14 @@ final class AppModel {
     func startSlideshow() {
         guard !photos.isEmpty, window == nil else { return }
         var list = photos
-        if order == .random { list.shuffle() }
+        var first = startIndex.flatMap { photos.indices.contains($0) ? $0 : nil } ?? 0
+        if order == .random {
+            let startURL = list[first]
+            list.shuffle()
+            // 選んだ写真があれば、それを先頭にしてから始める
+            if startIndex != nil, let k = list.firstIndex(of: startURL) { list.swapAt(0, k) }
+            first = 0
+        }
         let settings = SlideshowSettings(
             dwell: dwell,
             transition: transition,
@@ -128,7 +145,7 @@ final class AppModel {
         controller.onFinish = { [weak w] in w?.close() }
         window = w
         isShowing = true
-        controller.start()
+        controller.start(at: first)
     }
 
     private func slideshowEnded() {
