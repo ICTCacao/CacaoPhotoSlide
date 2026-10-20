@@ -15,6 +15,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let model = Self.model, model.isExporting else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = "mp4 の書き出しの途中です"
+        alert.informativeText = "中止して終了しますか？（途中のファイルは残りません）"
+        alert.addButton(withTitle: "中止して終了")
+        alert.addButton(withTitle: "キャンセル")
+        if alert.runModal() == .alertFirstButtonReturn {
+            model.exportJob?.cancel()
+            return .terminateNow
+        }
+        return .terminateCancel
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         if let model = Self.model {
             Task { @MainActor in model.load(urls) }
@@ -66,6 +80,16 @@ struct CacaoPhotoSlideApp: App {
                 Button("開始") { model.startSlideshow() }
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(model.photos.isEmpty || model.isShowing)
+                Button("mp4 に書き出す…") { model.showExport = true }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                    .disabled(model.photos.isEmpty || model.isShowing)
+                Divider()
+                Button("すべての写真を選択") { model.selectAll() }
+                    .keyboardShortcut("a", modifiers: [.command, .shift])
+                    .disabled(model.photos.isEmpty)
+                Button("選択を解除") { model.clearSelection() }
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .disabled(model.selection.isEmpty)
             }
         }
     }

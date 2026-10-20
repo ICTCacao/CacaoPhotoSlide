@@ -13,6 +13,9 @@ struct ContentView: View {
         }
         .padding(18)
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in handleDrop(providers) }
+        .sheet(isPresented: Bindable(model).showExport) {
+            ExportSheet().environment(model)
+        }
     }
 
     // MARK: ドロップ先
@@ -65,19 +68,21 @@ struct ContentView: View {
                 Button("開く…") { model.openPanel() }
             }
             HStack(spacing: 6) {
-                if let label = model.startLabel {
-                    Image(systemName: "play.circle.fill").foregroundStyle(Color.accentColor)
-                    Text("開始: \(label)").lineLimit(1).truncationMode(.middle)
+                if let label = model.selectionLabel {
+                    Image(systemName: model.selection.count >= 2 ? "checkmark.circle.fill" : "play.circle.fill")
+                        .foregroundStyle(Color.accentColor)
+                    Text(label).lineLimit(1).truncationMode(.middle)
                     Button {
-                        model.startIndex = nil
+                        model.clearSelection()
                     } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("最初の写真から始める")
+                    .help("選択を解除して、全部を最初から")
                 } else {
-                    Text("写真をクリックすると、そこから始めます（ダブルクリックですぐ開始）")
+                    Text("クリック: その写真から開始　⌘クリック / ⇧クリック: 複数を選んで、その写真だけを流す　ダブルクリック: すぐ開始")
                         .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
             }
             .font(.callout)
@@ -94,9 +99,10 @@ struct ContentView: View {
     }
 
     private func thumbnailCell(_ i: Int) -> some View {
-        let selected = model.startIndex == i
+        let selected = model.selection.contains(i)
+        let multi = model.selection.count >= 2
         return Button {
-            model.startIndex = i
+            model.click(i, modifiers: NSEvent.modifierFlags)
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.15))
@@ -115,7 +121,7 @@ struct ContentView: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if selected {
-                    Image(systemName: "play.circle.fill")
+                    Image(systemName: multi ? "checkmark.circle.fill" : "play.circle.fill")
                         .font(.system(size: 18))
                         .foregroundStyle(.white, Color.accentColor)
                         .padding(3)
@@ -125,8 +131,8 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .simultaneousGesture(TapGesture(count: 2).onEnded {
-            model.startIndex = i
-            model.startSlideshow()
+            if model.selection.count < 2 { model.selection = [i] }
+            model.startSlideshow(from: i)
         })
         .help("\(i + 1) / \(model.photos.count)  \(model.photos[i].lastPathComponent)")
         .onAppear { model.requestThumbnail(i) }
@@ -142,12 +148,20 @@ struct ContentView: View {
     // MARK: 設定
 
     private func settings(_ model: Bindable<AppModel>) -> some View {
-        Form {
+        let choices = AppModel.dwellChoices
+        let dwellIndex = Binding<Double>(
+            get: {
+                let d = model.dwell.wrappedValue
+                let i = choices.indices.min { abs(choices[$0] - d) < abs(choices[$1] - d) } ?? 0
+                return Double(i)
+            },
+            set: { model.dwell.wrappedValue = choices[Int($0.rounded())] })
+        return Form {
             LabeledContent("表示時間") {
                 HStack {
-                    Slider(value: model.dwell, in: 1...30, step: 1)
-                    Text("\(Int(model.dwell.wrappedValue)) 秒")
-                        .monospacedDigit().frame(width: 44, alignment: .trailing)
+                    Slider(value: dwellIndex, in: 0...Double(choices.count - 1), step: 1)
+                    Text(Self.seconds(model.dwell.wrappedValue))
+                        .monospacedDigit().frame(width: 50, alignment: .trailing)
                 }
             }
             Picker("切り替え", selection: model.transition) {
@@ -156,8 +170,8 @@ struct ContentView: View {
             LabeledContent("切り替えの長さ") {
                 HStack {
                     Slider(value: model.transitionDuration, in: 0.3...3, step: 0.1)
-                    Text(String(format: "%.1f 秒", model.transitionDuration.wrappedValue))
-                        .monospacedDigit().frame(width: 44, alignment: .trailing)
+                    Text(Self.seconds(min(model.transitionDuration.wrappedValue, model.dwell.wrappedValue)))
+                        .monospacedDigit().frame(width: 50, alignment: .trailing)
                 }
             }
             .disabled(model.transition.wrappedValue == .none)
@@ -180,6 +194,10 @@ struct ContentView: View {
         .frame(height: 292)
     }
 
+    static func seconds(_ v: Double) -> String {
+        v == v.rounded() ? "\(Int(v)) 秒" : String(format: "%.1f 秒", v)
+    }
+
     // MARK: 下段
 
     private var footer: some View {
@@ -191,6 +209,13 @@ struct ContentView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             Spacer()
+            Button {
+                model.showExport = true
+            } label: {
+                Label("mp4 に書き出す…", systemImage: "film")
+            }
+            .controlSize(.large)
+            .disabled(model.photos.isEmpty || model.isScanning || model.isShowing)
             Button {
                 model.startSlideshow()
             } label: {

@@ -58,4 +58,6 @@ enum Prefs {
     static let recursive = "recursive"
     static let fit = "fit"
     static let lastSources = "lastSources"
+    static let exportSize = "exportSize"
+    static let exportFps = "exportFps"
 }

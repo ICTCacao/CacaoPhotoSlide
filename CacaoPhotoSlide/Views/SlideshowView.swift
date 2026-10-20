@@ -12,7 +12,7 @@ struct SlideshowView: View {
                 ZStack {
                     Color.black
                     if let cur = controller.current {
-                        let t = easeInOut(controller.transitionProgress(at: date))
+                        let t = TransitionMath.easeInOut(controller.transitionProgress(at: date))
                         if t < 1, let prev = controller.previous {
                             layer(prev, size: size, date: date, fx: outgoing(t, width: size.width))
                         }
@@ -28,12 +28,6 @@ struct SlideshowView: View {
     }
 
     // MARK: 1 枚ぶんの描画
-
-    struct LayerFX {
-        var opacity: Double = 1
-        var scale: CGFloat = 1
-        var dx: CGFloat = 0
-    }
 
     private func layer(_ slide: Slide, size: CGSize, date: Date, fx: LayerFX) -> some View {
         let kenBurns = controller.settings.transition == .kenBurns
@@ -53,25 +47,11 @@ struct SlideshowView: View {
     }
 
     private func incoming(_ t: Double, width: CGFloat) -> LayerFX {
-        switch controller.settings.transition {
-        case .kenBurns, .crossfade: return LayerFX(opacity: t)
-        case .push: return LayerFX(dx: (1 - t) * width)
-        case .zoom: return LayerFX(opacity: t, scale: 0.82 + 0.18 * t)
-        case .none: return LayerFX()
-        }
+        TransitionMath.incoming(controller.settings.transition, t: t, width: width)
     }
 
     private func outgoing(_ t: Double, width: CGFloat) -> LayerFX {
-        switch controller.settings.transition {
-        case .kenBurns, .crossfade: return LayerFX()
-        case .push: return LayerFX(dx: -t * width)
-        case .zoom: return LayerFX(opacity: 1 - t, scale: 1 + 0.15 * t)
-        case .none: return LayerFX()
-        }
-    }
-
-    private func easeInOut(_ t: Double) -> Double {
-        t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
+        TransitionMath.outgoing(controller.settings.transition, t: t, width: width)
     }
 
     // MARK: 一時停止と枚数の表示
