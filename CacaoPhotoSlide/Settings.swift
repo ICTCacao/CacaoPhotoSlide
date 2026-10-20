@@ -40,6 +40,23 @@ enum FitMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// 段（トラック）ごとの色
+enum TrackColors {
+    static let names = ["orange", "teal", "purple", "green", "pink", "indigo", "mint", "brown"]
+}
+
+/// スライドショーの表示先
+enum DisplayMode: String, CaseIterable, Identifiable {
+    case fullScreen, window
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .fullScreen: return "全画面"
+        case .window: return "別ウインドウ"
+        }
+    }
+}
+
 /// スライドショー開始時に固める設定
 struct SlideshowSettings {
     var dwell: TimeInterval            // 1 枚を見せる秒数（次の切り替えまで）
@@ -47,6 +64,8 @@ struct SlideshowSettings {
     var transitionDuration: TimeInterval
     var loop: Bool
     var fit: FitMode
+    var clips: [MusicClip] = []        // 音声のタイムライン
+    var document: URL?                 // クリップの相対パスを解決するための書類の場所
 }
 
 enum Prefs {
@@ -60,4 +79,6 @@ enum Prefs {
     static let lastSources = "lastSources"
     static let exportSize = "exportSize"
     static let exportFps = "exportFps"
+    static let lastDocument = "lastDocument"
+    static let displayMode = "displayMode"
 }

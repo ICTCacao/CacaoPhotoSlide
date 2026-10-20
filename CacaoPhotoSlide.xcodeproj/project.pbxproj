@@ -14,9 +14,14 @@
 		31D420C7C4CDA3A2566419E8 /* PhotoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE899BB58EFE0A1248A71CAD /* PhotoLibrary.swift */; };
 		6C4376EE1F57BF3E9372DDDE /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 770C3664768A56B38CB8B69C /* InfoPlist.strings */; };
 		78DF2351C5B1BADC0C7695EA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F2BCF1DE836E5BBC0E3D2747 /* Assets.xcassets */; };
+		8B8000EA9B020DDE8A10CFA3 /* MusicTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8258F6F9D29CF3AE4E42B401 /* MusicTimeline.swift */; };
 		92B92D676A0088668FD166F0 /* SlideshowWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19FEE8B5E66F5FC36CC284E7 /* SlideshowWindow.swift */; };
+		A1579B999292194CC62DFF03 /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE0A5F92E38B0A2CA47173D0 /* Project.swift */; };
 		A92848AC1CC6654D204C438C /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDAF6150D4B712E50F6B8100 /* ContentView.swift */; };
+		AC54920A238F1657FC7AC6C3 /* AudioTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2B1FDD3452DC9AB282B508 /* AudioTimelineView.swift */; };
 		AD0D86723D752DBF0FE0070A /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6414026FB92981C959A904B8 /* Settings.swift */; };
+		BE697E64D784410B4E305EC3 /* ClipRangeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC2A3E5B6AF0798C173BE6A7 /* ClipRangeView.swift */; };
+		C0C657B311CB5D0EE41C3C28 /* Waveform.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDB1C94C92BD67EE9E529C8D /* Waveform.swift */; };
 		D15A990105E38EEBEB3D2E29 /* ExportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D136F9E179AFD6CBD5581C8B /* ExportSheet.swift */; };
 		D9F595A23E5279614FB58D39 /* SlideshowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A546283504F976989184500 /* SlideshowView.swift */; };
 		EBA0F9D9D5F66121466D1D57 /* CacaoPhotoSlideApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F008EBEE8F5686C5E63090D /* CacaoPhotoSlideApp.swift */; };
@@ -35,12 +40,17 @@
 		72A4322F15969DC5F1EC98CF /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		7EC218D121932E0C77CFBB8B /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		7F008EBEE8F5686C5E63090D /* CacaoPhotoSlideApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacaoPhotoSlideApp.swift; sourceTree = "<group>"; };
+		8258F6F9D29CF3AE4E42B401 /* MusicTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicTimeline.swift; sourceTree = "<group>"; };
 		9BEB3B1524895721496024DD /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
+		9C2B1FDD3452DC9AB282B508 /* AudioTimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTimelineView.swift; sourceTree = "<group>"; };
 		BC6164C922D821BA7124C0F2 /* SlideshowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlideshowController.swift; sourceTree = "<group>"; };
 		BDAF6150D4B712E50F6B8100 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		BE0A5F92E38B0A2CA47173D0 /* Project.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Project.swift; sourceTree = "<group>"; };
 		BEF849E45E2B1F5EBBA4121D /* CacaoPhotoSlide.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CacaoPhotoSlide.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D136F9E179AFD6CBD5581C8B /* ExportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportSheet.swift; sourceTree = "<group>"; };
+		DC2A3E5B6AF0798C173BE6A7 /* ClipRangeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipRangeView.swift; sourceTree = "<group>"; };
 		DC577C609FC06F8F55DA862B /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		DDB1C94C92BD67EE9E529C8D /* Waveform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Waveform.swift; sourceTree = "<group>"; };
 		F2BCF1DE836E5BBC0E3D2747 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FE899BB58EFE0A1248A71CAD /* PhotoLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibrary.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -49,6 +59,8 @@
 		03D9F28DAA38D6F10D7F6FAA /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				9C2B1FDD3452DC9AB282B508 /* AudioTimelineView.swift */,
+				DC2A3E5B6AF0798C173BE6A7 /* ClipRangeView.swift */,
 				BDAF6150D4B712E50F6B8100 /* ContentView.swift */,
 				D136F9E179AFD6CBD5581C8B /* ExportSheet.swift */,
 				3A546283504F976989184500 /* SlideshowView.swift */,
@@ -89,12 +101,15 @@
 				72A4322F15969DC5F1EC98CF /* AppModel.swift */,
 				7F008EBEE8F5686C5E63090D /* CacaoPhotoSlideApp.swift */,
 				1A24501D9D1A350E983AC817 /* ImageLoader.swift */,
+				8258F6F9D29CF3AE4E42B401 /* MusicTimeline.swift */,
 				FE899BB58EFE0A1248A71CAD /* PhotoLibrary.swift */,
+				BE0A5F92E38B0A2CA47173D0 /* Project.swift */,
 				6414026FB92981C959A904B8 /* Settings.swift */,
 				BC6164C922D821BA7124C0F2 /* SlideshowController.swift */,
 				19FEE8B5E66F5FC36CC284E7 /* SlideshowWindow.swift */,
 				36E393D00DC18051792A5D3C /* TransitionMath.swift */,
 				358FBEF149D9655617426A37 /* VideoExporter.swift */,
+				DDB1C94C92BD67EE9E529C8D /* Waveform.swift */,
 				99556A596F5CB862C4F63773 /* Resources */,
 				03D9F28DAA38D6F10D7F6FAA /* Views */,
 			);
@@ -176,17 +191,22 @@
 			buildActionMask = 2147483647;
 			files = (
 				2EE3610FE4906DF787AF6234 /* AppModel.swift in Sources */,
+				AC54920A238F1657FC7AC6C3 /* AudioTimelineView.swift in Sources */,
 				EBA0F9D9D5F66121466D1D57 /* CacaoPhotoSlideApp.swift in Sources */,
+				BE697E64D784410B4E305EC3 /* ClipRangeView.swift in Sources */,
 				A92848AC1CC6654D204C438C /* ContentView.swift in Sources */,
 				D15A990105E38EEBEB3D2E29 /* ExportSheet.swift in Sources */,
 				1AF40CB771B20E8A6E6C4C70 /* ImageLoader.swift in Sources */,
+				8B8000EA9B020DDE8A10CFA3 /* MusicTimeline.swift in Sources */,
 				31D420C7C4CDA3A2566419E8 /* PhotoLibrary.swift in Sources */,
+				A1579B999292194CC62DFF03 /* Project.swift in Sources */,
 				AD0D86723D752DBF0FE0070A /* Settings.swift in Sources */,
 				0B5470ACB14900432DB0CDDA /* SlideshowController.swift in Sources */,
 				D9F595A23E5279614FB58D39 /* SlideshowView.swift in Sources */,
 				92B92D676A0088668FD166F0 /* SlideshowWindow.swift in Sources */,
 				1FE3953F4B2BE7EB3F35BF63 /* TransitionMath.swift in Sources */,
 				FC0E4400FB723F197392013A /* VideoExporter.swift in Sources */,
+				C0C657B311CB5D0EE41C3C28 /* Waveform.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

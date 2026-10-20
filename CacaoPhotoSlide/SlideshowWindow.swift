@@ -8,28 +8,48 @@ final class SlideshowWindow: NSWindow, NSWindowDelegate {
     private var activity: NSObjectProtocol?
     private var keyMonitor: Any?
 
-    static func present(controller: SlideshowController, on screen: NSScreen, onClose: @escaping () -> Void) -> SlideshowWindow {
-        // contentRect はグローバル座標で渡す（screen: 付きの初期化子はスクリーン相対になるので使わない）
-        let w = SlideshowWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+    private var fullScreen = true
+
+    static func present(controller: SlideshowController, on screen: NSScreen, mode: DisplayMode, onClose: @escaping () -> Void) -> SlideshowWindow {
+        let w: SlideshowWindow
+        if mode == .fullScreen {
+            // contentRect はグローバル座標で渡す（screen: 付きの初期化子はスクリーン相対になるので使わない）
+            w = SlideshowWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            w.fullScreen = true
+            w.hasShadow = false
+            w.animationBehavior = .none
+            w.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
+            w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        } else {
+            // 普通の窓。大きさは自由（既定 960×540）、前回の位置を覚える
+            let size = NSSize(width: 960, height: 540)
+            let origin = NSPoint(x: screen.visibleFrame.midX - size.width / 2, y: screen.visibleFrame.midY - size.height / 2)
+            w = SlideshowWindow(contentRect: NSRect(origin: origin, size: size),
+                                styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
+            w.fullScreen = false
+            w.title = "スライドショー"
+            w.contentAspectRatio = NSSize(width: 16, height: 9)
+            w.minSize = NSSize(width: 320, height: 180)
+            w.setFrameAutosaveName("SlideshowWindow")
+            w.collectionBehavior = [.fullScreenPrimary]
+        }
         w.controller = controller
         w.onClose = onClose
         w.isReleasedWhenClosed = false
         w.backgroundColor = .black
         w.isOpaque = true
-        w.hasShadow = false
-        w.animationBehavior = .none
-        w.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
-        w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         w.contentView = NSHostingView(rootView: SlideshowView(controller: controller))
         w.delegate = w
         w.activity = ProcessInfo.processInfo.beginActivity(options: [.idleDisplaySleepDisabled, .userInitiated], reason: "スライドショー")
-        NSApp.presentationOptions = [.hideDock, .hideMenuBar]
-        NSCursor.hide()
+        if w.fullScreen {
+            NSApp.presentationOptions = [.hideDock, .hideMenuBar]
+            NSCursor.hide()
+            w.setFrame(screen.frame, display: false)
+        }
         w.keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak w] event in
             guard let w, event.window === w else { return event }
             return w.handle(event) ? nil : event
         }
-        w.setFrame(screen.frame, display: false)
         w.makeKeyAndOrderFront(nil)
         return w
     }
@@ -54,8 +74,10 @@ final class SlideshowWindow: NSWindow, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
-        NSCursor.unhide()
-        NSApp.presentationOptions = []
+        if fullScreen {
+            NSCursor.unhide()
+            NSApp.presentationOptions = []
+        }
         if let a = activity { ProcessInfo.processInfo.endActivity(a); activity = nil }
         controller.stop()
         onClose?()

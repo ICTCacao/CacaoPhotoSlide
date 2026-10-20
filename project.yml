@@ -31,15 +31,24 @@ targets:
       properties:
         CFBundleDisplayName: CacaoPhotoSlide
         CFBundleName: CacaoPhotoSlide
-        CFBundleShortVersionString: "1.0.2"
-        CFBundleVersion: "1.0.2"
+        CFBundleShortVersionString: "1.0.3"
+        CFBundleVersion: "1.0.3"
         LSMinimumSystemVersion: "14.0"
         CFBundleDevelopmentRegion: ja
         CFBundleLocalizations: [ja, en]
         LSApplicationCategoryType: public.app-category.photography
         NSHumanReadableCopyright: "© 2026 ICTCacao"
-        # Dock のアイコンにフォルダや画像を落とせるように
+        # 書類 .cpsd（フォルダ形式のパッケージ）と、Dock のアイコンに落とせるフォルダ・画像・音声
         CFBundleDocumentTypes:
+          - CFBundleTypeName: CacaoPhotoSlide スライドショー
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSTypeIsPackage: true
+            LSItemContentTypes: [com.ictcacao.cacaophotoslide.cpsd]
+          - CFBundleTypeName: Audio
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: None
+            LSItemContentTypes: [public.audio]
           - CFBundleTypeName: Folder
             CFBundleTypeRole: Viewer
             LSHandlerRank: None
@@ -48,6 +57,12 @@ targets:
             CFBundleTypeRole: Viewer
             LSHandlerRank: None
             LSItemContentTypes: [public.image]
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.ictcacao.cacaophotoslide.cpsd
+            UTTypeDescription: CacaoPhotoSlide スライドショー
+            UTTypeConformsTo: [com.apple.package, public.composite-content]
+            UTTypeTagSpecification:
+              public.filename-extension: [cpsd]
     # 好きな場所の写真を読むため、サンドボックスは使わない
     entitlements:
       path: CacaoPhotoSlide/Resources/CacaoPhotoSlide.entitlements

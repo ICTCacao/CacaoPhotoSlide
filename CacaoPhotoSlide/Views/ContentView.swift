@@ -4,14 +4,35 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var targeted = false
+    @State private var lowerHeight: CGFloat = 0
+
+    private struct LowerHeightKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+    }
 
     var body: some View {
-        VStack(spacing: 14) {
-            dropZone
-            settings(Bindable(model))
-            footer
+        // 写真の欄は、窓の高さから下の部分（タイムライン・設定・ボタン）を引いた分。入り切らなければ全体がスクロールする
+        GeometryReader { geo in
+            ScrollView(.vertical) {
+                VStack(spacing: 14) {
+                    dropZone
+                        .frame(height: max(200, geo.size.height - 36 - 14 - lowerHeight))
+                    VStack(spacing: 14) {
+                        AudioTimelineView().environment(model)
+                        settings(Bindable(model))
+                        footer
+                    }
+                    .background(GeometryReader { g in
+                        Color.clear.preference(key: LowerHeightKey.self, value: g.size.height)
+                    })
+                }
+                .padding(18)
+            }
+            .onPreferenceChange(LowerHeightKey.self) { lowerHeight = $0 }
         }
-        .padding(18)
+        .navigationTitle(model.documentTitle)
+        .navigationSubtitle(model.documentURL == nil ? "" : "CacaoPhotoSlide 書類")
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in handleDrop(providers) }
         .sheet(isPresented: Bindable(model).showExport) {
             ExportSheet().environment(model)
@@ -33,7 +54,7 @@ struct ContentView: View {
                 photoSummary
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 230, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
         .animation(.easeOut(duration: 0.15), value: targeted)
     }
 
@@ -44,6 +65,8 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
             Text("ここに写真のフォルダをドロップ")
                 .font(.title3)
+            Text("音声ファイルや .cpsd 書類も落とせます")
+                .font(.callout).foregroundStyle(.secondary)
             if let m = model.message {
                 Text(m).foregroundStyle(.secondary)
             }
@@ -65,6 +88,10 @@ struct ContentView: View {
                 } else {
                     Text("\(model.photos.count) 枚").monospacedDigit().fontWeight(.semibold)
                 }
+                if model.removedCount > 0 {
+                    Button("外した \(model.removedCount) 枚を戻す") { model.restoreRemovedPhotos() }
+                        .controlSize(.small)
+                }
                 Button("開く…") { model.openPanel() }
             }
             HStack(spacing: 6) {
@@ -80,7 +107,7 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                     .help("選択を解除して、全部を最初から")
                 } else {
-                    Text("クリック: その写真から開始　⌘クリック / ⇧クリック: 複数を選んで、その写真だけを流す　ダブルクリック: すぐ開始")
+                    Text("クリック: その写真から開始　⌘ / ⇧クリック: 複数を選んで、その写真だけを流す　ダブルクリック: すぐ開始　右クリックや Delete: 写真を外す")
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
@@ -106,7 +133,7 @@ struct ContentView: View {
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.15))
-                if let cg = model.thumbnails[i] {
+                if let cg = model.thumbnails[model.photos[i]] {
                     Image(decorative: cg, scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
@@ -135,6 +162,14 @@ struct ContentView: View {
             model.startSlideshow(from: i)
         })
         .help("\(i + 1) / \(model.photos.count)  \(model.photos[i].lastPathComponent)")
+        .contextMenu {
+            if model.selection.contains(i), model.selection.count >= 2 {
+                Button("選んだ \(model.selection.count) 枚を外す") { model.removeSelectedPhotos() }
+            } else {
+                Button("この写真を外す") { model.removePhoto(i) }
+            }
+            Button("Finder で表示") { NSWorkspace.shared.activateFileViewerSelecting([model.photos[i]]) }
+        }
         .onAppear { model.requestThumbnail(i) }
         .onDisappear { model.cancelThumbnail(i) }
     }
@@ -183,6 +218,10 @@ struct ContentView: View {
                 ForEach(FitMode.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
+            Picker("表示先", selection: model.displayMode) {
+                ForEach(DisplayMode.allCases) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
             HStack(spacing: 24) {
                 Toggle("繰り返す", isOn: model.loop)
                 Toggle("サブフォルダも含める", isOn: model.recursive)
@@ -191,7 +230,7 @@ struct ContentView: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .scrollDisabled(true)
-        .frame(height: 292)
+        .frame(height: 332)
     }
 
     static func seconds(_ v: Double) -> String {
@@ -209,6 +248,10 @@ struct ContentView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             Spacer()
+            if let saving = model.savingMessage {
+                ProgressView().controlSize(.small)
+                Text(saving).font(.callout).foregroundStyle(.secondary).monospacedDigit()
+            }
             Button {
                 model.showExport = true
             } label: {
@@ -216,16 +259,34 @@ struct ContentView: View {
             }
             .controlSize(.large)
             .disabled(model.photos.isEmpty || model.isScanning || model.isShowing)
-            Button {
-                model.startSlideshow()
-            } label: {
-                Label("スライドショーを開始", systemImage: "play.fill")
-                    .padding(.horizontal, 6)
+            if let c = model.activeController {
+                Button {
+                    c.togglePause()
+                } label: {
+                    Label(c.isPaused ? "再開" : "一時停止", systemImage: c.isPaused ? "play.fill" : "pause.fill")
+                        .frame(width: 80)
+                }
+                .controlSize(.large)
+                Button {
+                    model.stopSlideshow()
+                } label: {
+                    Label("終了", systemImage: "stop.fill")
+                        .padding(.horizontal, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            } else {
+                Button {
+                    model.startSlideshow()
+                } label: {
+                    Label("スライドショーを開始", systemImage: "play.fill")
+                        .padding(.horizontal, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .disabled(model.photos.isEmpty || model.isScanning)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-            .disabled(model.photos.isEmpty || model.isScanning || model.isShowing)
         }
     }
 

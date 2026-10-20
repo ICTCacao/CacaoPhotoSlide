@@ -47,32 +47,42 @@ struct CacaoPhotoSlideApp: App {
         Window(AppInfo.name, id: "main") {
             ContentView()
                 .environment(model)
-                .frame(minWidth: 560, minHeight: 600)
+                .frame(minWidth: 760, minHeight: 560)
                 .onAppear {
                     AppDelegate.model = model
                     if AppDelegate.pending.isEmpty {
-                        model.restoreLastSources()
+                        model.restoreLast()
                     } else {
                         model.load(AppDelegate.pending)
                         AppDelegate.pending = []
                     }
                 }
         }
-        .defaultSize(width: 640, height: 680)
+        .defaultSize(width: 860, height: 960)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("\(AppInfo.name) について") {
                     NSApp.orderFrontStandardAboutPanel(options: [
                         .applicationVersion: AppInfo.version,
                         .version: "",
-                        .credits: NSAttributedString(string: "写真のフォルダをドロップして、全画面のスライドショーにする。\nSpace で停止/再開、← → で前後、Esc で終了。"),
+                        .credits: NSAttributedString(string: "写真のフォルダをドロップして、全画面のスライドショーにする。\n音声をタイムラインに置き、mp4 にも書き出せる。\nSpace で停止/再開、← → で前後、Esc で終了。"),
                     ])
                 }
             }
             CommandGroup(replacing: .newItem) {
+                Button("新規") { model.newDocument() }
+                    .keyboardShortcut("n")
                 Button("開く…") { model.openPanel() }
                     .keyboardShortcut("o")
-                Button("Finder で表示") { model.revealSources() }
+                Divider()
+                Button("保存") { model.saveDocument() }
+                    .keyboardShortcut("s")
+                    .disabled(model.sources.isEmpty && model.clips.isEmpty)
+                Button("別名で保存…") { model.saveDocumentAs() }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                    .disabled(model.sources.isEmpty && model.clips.isEmpty)
+                Divider()
+                Button("写真のフォルダを Finder で表示") { model.revealSources() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                     .disabled(model.sources.isEmpty)
             }
@@ -90,6 +100,12 @@ struct CacaoPhotoSlideApp: App {
                 Button("選択を解除") { model.clearSelection() }
                     .keyboardShortcut(.escape, modifiers: [])
                     .disabled(model.selection.isEmpty)
+                Divider()
+                Button("選んだ写真を外す") { model.removeSelectedPhotos() }
+                    .keyboardShortcut(.delete, modifiers: [])
+                    .disabled(model.selection.isEmpty)
+                Button("外した写真を戻す") { model.restoreRemovedPhotos() }
+                    .disabled(model.removedCount == 0)
             }
         }
     }

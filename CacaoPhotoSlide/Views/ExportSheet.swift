@@ -31,8 +31,14 @@ struct ExportSheet: View {
             .pickerStyle(.segmented)
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(self.model.exportCount) 枚 × \(ContentView.seconds(self.model.dwell)) ＝ 約 \(Self.clock(self.model.exportDuration))")
-                Text("切り替え・順番・選んだ写真・表示のしかたは、今の設定のまま。音は入りません。")
+                Text("切り替え・順番・選んだ写真・表示のしかたは、今の設定のまま。")
                     .foregroundStyle(.secondary)
+                if self.model.clips.isEmpty {
+                    Text("音は入りません（タイムラインに音声を置くと入ります）").foregroundStyle(.secondary)
+                } else {
+                    Label("音声 \(self.model.clips.count) 本をタイムラインの位置で入れます（終わりはフェードアウト）", systemImage: "music.note")
+                        .foregroundStyle(.secondary)
+                }
             }
             .font(.callout)
             HStack {

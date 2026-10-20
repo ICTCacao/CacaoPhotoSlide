@@ -30,6 +30,14 @@ struct ExportOptions {
     var fps: Int
 }
 
+/// 書き出しに入れるクリップ（トラックは先に読んでおく。track は asset を弱参照しかしないので asset も持つ）
+struct MusicSource {
+    let clip: MusicClip
+    let asset: AVURLAsset
+    let track: AVAssetTrack
+    let duration: CMTime
+}
+
 /// 書き出しの進み具合（画面に出す）
 @Observable @MainActor
 final class ExportJob {
@@ -69,9 +77,19 @@ enum VideoExporter {
 
     @MainActor static func export(urls: [URL], settings: SlideshowSettings, options: ExportOptions, to output: URL, job: ExportJob) async {
         let flag = job.flag
+        // クリップのトラックは先に読んでおく（読めないものは飛ばす）
+        var music: [MusicSource] = []
+        for clip in settings.clips {
+            let asset = AVURLAsset(url: clip.url(in: settings.document))
+            if let track = try? await asset.loadTracks(withMediaType: .audio).first,
+               let duration = try? await asset.load(.duration), duration.seconds > 0.1 {
+                music.append(MusicSource(clip: clip, asset: asset, track: track, duration: duration))
+            }
+        }
+        let musicSources = music
         let result: Result<URL, Error> = await Task.detached(priority: .userInitiated) {
             do {
-                try run(urls: urls, settings: settings, options: options, output: output, flag: flag) { p in
+                try run(urls: urls, settings: settings, options: options, music: musicSources, output: output, flag: flag) { p in
                     Task { @MainActor in job.progress = p }
                 }
                 return .success(output)
@@ -87,7 +105,7 @@ enum VideoExporter {
         }
     }
 
-    private static func run(urls: [URL], settings: SlideshowSettings, options: ExportOptions, output: URL,
+    private static func run(urls: [URL], settings: SlideshowSettings, options: ExportOptions, music: [MusicSource], output: URL,
                             flag: CancelFlag, progress: @escaping (Double) -> Void) throws {
         let n = urls.count
         guard n > 0 else { throw ExportError.noImages }
@@ -121,8 +139,102 @@ enum VideoExporter {
         ])
         guard writer.canAdd(input) else { throw ExportError.writer("入力を追加できません") }
         writer.add(input)
+
+        // 音声: クリップごとに合成トラックを作って置き、音量とフェードのカーブを掛けてミックスし、PCM で読んで AAC で書く
+        let videoDuration = CMTime(value: CMTimeValue(total), timescale: CMTimeScale(fps))
+        var audioReader: AVAssetReader?
+        var audioOutput: AVAssetReaderAudioMixOutput?
+        var audioInput: AVAssetWriterInput?
+        if !music.isEmpty {
+            let comp = AVMutableComposition()
+            var params: [AVMutableAudioMixInputParameters] = []
+            var tracks: [AVCompositionTrack] = []
+            for m in music where m.clip.start < videoDuration.seconds {
+                guard let track = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else { continue }
+                let start = CMTime(seconds: m.clip.start, preferredTimescale: 600)
+                let inPoint = CMTime(seconds: min(m.clip.inPoint, m.duration.seconds), preferredTimescale: 600)
+                let usable = CMTime(seconds: max(0, min(m.clip.effectiveOut, m.duration.seconds) - inPoint.seconds), preferredTimescale: 600)
+                let len = CMTimeMinimum(usable, CMTimeSubtract(videoDuration, start))
+                guard len.seconds > 0.05 else { continue }
+                do {
+                    try track.insertTimeRange(CMTimeRange(start: inPoint, duration: len), of: m.track, at: start)
+                } catch {
+                    NSLog("CacaoPhotoSlide: 音声を置けません %@: %@", m.clip.name, error.localizedDescription)
+                    continue
+                }
+                let p = AVMutableAudioMixInputParameters(track: track)
+                let vol = Float(m.clip.volume)
+                p.setVolume(vol, at: .zero)
+                let end = CMTimeAdd(start, len)
+                if m.clip.fadeIn > 0 {
+                    let fi = CMTime(seconds: min(m.clip.fadeIn, len.seconds / 2), preferredTimescale: 600)
+                    p.setVolumeRamp(fromStartVolume: 0, toEndVolume: vol, timeRange: CMTimeRange(start: start, duration: fi))
+                }
+                // 動画の終わりで切れるクリップは 3 秒で、そうでなければ指定のフェードアウト
+                let cut = CMTimeCompare(end, videoDuration) >= 0
+                let foSec = min(cut ? 3.0 : m.clip.fadeOut, len.seconds / 2)
+                if foSec > 0 {
+                    let fo = CMTime(seconds: foSec, preferredTimescale: 600)
+                    p.setVolumeRamp(fromStartVolume: vol, toEndVolume: 0, timeRange: CMTimeRange(start: CMTimeSubtract(end, fo), duration: fo))
+                }
+                params.append(p)
+                tracks.append(track)
+            }
+            if tracks.isEmpty { NSLog("CacaoPhotoSlide: 音声トラックなし") }
+            if !tracks.isEmpty, let reader = try? AVAssetReader(asset: comp) {
+                let mix = AVMutableAudioMix()
+                mix.inputParameters = params
+                let out = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
+                    AVFormatIDKey: kAudioFormatLinearPCM,
+                    AVSampleRateKey: 44100,
+                    AVNumberOfChannelsKey: 2,
+                    AVLinearPCMBitDepthKey: 16,
+                    AVLinearPCMIsFloatKey: false,
+                    AVLinearPCMIsBigEndianKey: false,
+                    AVLinearPCMIsNonInterleaved: false,
+                ])
+                out.audioMix = mix
+                let ain = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: 44100,
+                    AVNumberOfChannelsKey: 2,
+                    AVEncoderBitRateKey: 192_000,
+                ])
+                ain.expectsMediaDataInRealTime = false
+                if reader.canAdd(out), writer.canAdd(ain) {
+                    reader.add(out)
+                    writer.add(ain)
+                    audioReader = reader
+                    audioOutput = out
+                    audioInput = ain
+                } else {
+                    NSLog("CacaoPhotoSlide: 音声の読み書きを追加できません canAddOut=%d canAddIn=%d", reader.canAdd(out), writer.canAdd(ain))
+                }
+            }
+        }
+
         guard writer.startWriting() else { throw ExportError.writer(writer.error?.localizedDescription ?? "開始できません") }
         writer.startSession(atSourceTime: .zero)
+        if let r = audioReader, !r.startReading() {
+            NSLog("CacaoPhotoSlide: 音声を読み始められません: %@", r.error?.localizedDescription ?? "?")
+            audioReader = nil; audioOutput = nil; audioInput?.markAsFinished()
+        }
+
+        // 音声は映像より少し先まで書いておく（インターリーブ）
+        var audioDone = audioOutput == nil
+        var audioTime = CMTime.zero
+        func feedAudio(upTo limit: CMTime) {
+            guard !audioDone, let out = audioOutput, let ain = audioInput else { return }
+            while audioTime < limit {
+                guard ain.isReadyForMoreMediaData else { usleep(2000); continue }
+                guard let sb = out.copyNextSampleBuffer() else {
+                    if let r = audioReader, r.status == .failed { NSLog("CacaoPhotoSlide: 音声の読み込みに失敗: %@", r.error?.localizedDescription ?? "?") }
+                    ain.markAsFinished(); audioDone = true; return
+                }
+                audioTime = CMTimeAdd(CMSampleBufferGetPresentationTimeStamp(sb), CMSampleBufferGetDuration(sb))
+                if !ain.append(sb) { ain.markAsFinished(); audioDone = true; return }
+            }
+        }
 
         // 写真は今のと前のだけ持つ
         var cache: [Int: CGImage] = [:]
@@ -176,9 +288,13 @@ enum VideoExporter {
             if !adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(f), timescale: CMTimeScale(fps))) {
                 throw ExportError.writer(writer.error?.localizedDescription ?? "フレームを書けません")
             }
+            feedAudio(upTo: CMTimeAdd(CMTime(value: CMTimeValue(f), timescale: CMTimeScale(fps)), CMTime(seconds: 1, preferredTimescale: 600)))
             if f % 10 == 0 { progress(Double(f) / Double(total)) }
         }
         input.markAsFinished()
+        feedAudio(upTo: CMTimeAdd(videoDuration, CMTime(seconds: 1, preferredTimescale: 600)))
+        if !audioDone { audioInput?.markAsFinished() }
+        audioReader?.cancelReading()
         let sema = DispatchSemaphore(value: 0)
         writer.finishWriting { sema.signal() }
         sema.wait()

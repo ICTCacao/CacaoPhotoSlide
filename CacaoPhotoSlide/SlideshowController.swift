@@ -58,6 +58,7 @@ final class SlideshowController {
     private var holdTask: Task<Void, Never>?
     private var clearTask: Task<Void, Never>?
     private var failures = 0
+    private var music: MusicTimeline?
 
     var count: Int { urls.count }
     var isPaused: Bool { pausedAt != nil }
@@ -68,11 +69,16 @@ final class SlideshowController {
         self.urls = urls
         self.settings = settings
         self.loader = ImageLoader(urls: urls, maxPixel: maxPixel)
+        music = MusicTimeline(clips: settings.clips, document: settings.document)
     }
 
-    func start(at index: Int = 0) { show(min(max(0, index), max(0, count - 1)), direction: 1, manual: false) }
+    func start(at index: Int = 0) {
+        show(min(max(0, index), max(0, count - 1)), direction: 1, manual: false, resync: true)
+    }
 
     func stop() {
+        music?.stop()
+        music = nil
         advanceTask?.cancel(); showTask?.cancel(); holdTask?.cancel(); clearTask?.cancel()
         advanceTask = nil; showTask = nil; holdTask = nil; clearTask = nil
     }
@@ -84,9 +90,11 @@ final class SlideshowController {
             previous?.start += shift
             pausedAt = nil
             scheduleAdvance()
+            music?.resume()
         } else {
             pausedAt = Date()
             advanceTask?.cancel(); advanceTask = nil
+            music?.pause()
         }
         flashHold(hud: true)
     }
@@ -94,11 +102,13 @@ final class SlideshowController {
     func next(manual: Bool = true) {
         guard let cur = current else { return }
         var i = cur.index + 1
+        var wrapped = false
         if i >= count {
             guard settings.loop else { if !manual { finish() }; return }
             i = 0
+            wrapped = true
         }
-        show(i, direction: 1, manual: manual)
+        show(i, direction: 1, manual: manual, resync: manual || wrapped)
     }
 
     func previousSlide() {
@@ -108,7 +118,31 @@ final class SlideshowController {
             guard settings.loop else { return }
             i = count - 1
         }
-        show(i, direction: -1, manual: true)
+        show(i, direction: -1, manual: true, resync: true)
+    }
+
+    /// 流している途中でクリップが変わった
+    func updateClips(_ clips: [MusicClip], document: URL?) {
+        if let m = music {
+            m.update(clips: clips, document: document)
+        } else if !clips.isEmpty, let m = MusicTimeline(clips: clips, document: document) {
+            music = m
+            m.set(time: timelineTime(at: Date()), playing: pausedAt == nil)
+        }
+    }
+
+    /// タイムライン上の今の時刻（写真の位置 × 表示時間 + その写真での経過）
+    func timelineTime(at date: Date) -> TimeInterval {
+        guard let cur = current else { return 0 }
+        let clock = pausedAt ?? date
+        return Double(cur.index) * settings.dwell + min(settings.dwell, max(0, clock.timeIntervalSince(cur.start)))
+    }
+
+    /// タイムラインの時刻へ飛ぶ（その時刻の写真を出す）
+    func jump(to time: TimeInterval) {
+        guard count > 0, settings.dwell > 0 else { return }
+        let i = min(count - 1, max(0, Int(time / settings.dwell)))
+        show(i, direction: 1, manual: true, resync: true)
     }
 
     // MARK: 描画用
@@ -130,7 +164,7 @@ final class SlideshowController {
 
     // MARK: 内部
 
-    private func show(_ index: Int, direction: Int, manual: Bool) {
+    private func show(_ index: Int, direction: Int, manual: Bool, resync: Bool) {
         advanceTask?.cancel()
         showTask?.cancel()
         showTask = Task { [weak self] in
@@ -142,7 +176,7 @@ final class SlideshowController {
                 failures += 1
                 if failures >= count { finish(); return }
                 let n = count
-                show(((index + direction) % n + n) % n, direction: direction, manual: manual)
+                show(((index + direction) % n + n) % n, direction: direction, manual: manual, resync: resync)
                 return
             }
             failures = 0
@@ -150,6 +184,8 @@ final class SlideshowController {
             if pausedAt != nil { pausedAt = now }   // 停止中に送ったら、新しい写真は出だしで止めておく
             previous = current
             current = Slide(index: index, url: urls[index], image: image, start: now, motion: .random())
+            // 音楽は、最初・矢印で飛んだとき・最初に戻ったときだけ写真の位置に合わせ直す。自動送りでは触らない（毎回合わせると音が飛ぶ）
+            if resync { music?.set(time: Double(index) * settings.dwell, playing: pausedAt == nil) }
             let loop = settings.loop
             Task { await self.loader.preload(around: index, loop: loop) }
             scheduleAdvance()
