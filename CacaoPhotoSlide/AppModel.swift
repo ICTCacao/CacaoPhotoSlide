@@ -460,7 +460,8 @@ final class AppModel {
                 return c
             }.filter { !$0.path.isEmpty }
             resolveOverlaps()
-            selectedClip = nil
+            // 起動引数 -selectFirstClip YES で最初のクリップを選んでおく（記事の画面写真用）
+            selectedClip = ud.bool(forKey: "selectFirstClip") ? clips.first?.id : nil
             removedPaths = Set(f.excluded)
             // 選んだ写真は、書類の中の相対パスなら書類の場所で解決する
             pendingSelection = f.selection.map { $0.hasPrefix("/") ? $0 : url.appendingPathComponent($0).path }
