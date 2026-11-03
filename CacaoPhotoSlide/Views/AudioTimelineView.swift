@@ -179,10 +179,11 @@ struct AudioTimelineView: View {
                 .opacity(model.trackSetting(TrackRef(kind: nil)).hidden ? 0.35 : 1)
             overlayTrack(width: w, total: total, bounds: timing.bounds)
             titleTrack(width: w, total: total)
+            // 音声のトラックの行（右クリック用の透明な領域）は、クリップの下に敷く。上に重ねると、クリップをつかめなくなる
+            audioTrackRows(width: w)
             ForEach(model.clips) { clip in
                 clipBar(clip, width: w, total: total)
             }
-            audioTrackRows(width: w)
             if model.clips.isEmpty, model.trackCount > 0 {
                 Text("ここに音声ファイルをドロップ（置いた位置から鳴ります）")
                     .font(.caption).foregroundStyle(.secondary)
