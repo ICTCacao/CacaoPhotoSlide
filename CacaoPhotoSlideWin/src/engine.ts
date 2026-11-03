@@ -137,14 +137,53 @@ export function overlayOrder(clips: OverlayClip[]): OverlayClip[] {
   return [...clips].sort((a, b) => (a.track === b.track ? a.start - b.start : a.track - b.track));
 }
 
-export function overlayState(clip: OverlayClip, t: number, transition: Transition, fit: FitMode, motion: KenBurns | undefined, settled = false): OverlayState | null {
+/** すき間なく続くクリップ（同じトラックで、前のクリップの終わりに次の始まりが来る）の、次のクリップ。
+ *  V1 の写真と同じく、前のクリップを残したまま、次のクリップをクロスフェードなどで重ねるために使う */
+export function overlayNextMap(clips: OverlayClip[]): Map<string, OverlayClip> {
+  const out = new Map<string, OverlayClip>();
+  for (const a of clips) {
+    const end = a.start + a.duration;
+    let best: OverlayClip | undefined;
+    for (const b of clips) {
+      if (b.id === a.id || b.track !== a.track || Math.abs(b.start - end) > 0.05) continue;
+      if (!best || Math.abs(b.start - end) < Math.abs(best.start - end)) best = b;
+    }
+    if (best) out.set(a.id, best);
+  }
+  return out;
+}
+
+/** 次のクリップが入ってくる間、前のクリップを残しておく長さ（次のクリップのイン） */
+export function overlayHold(next: OverlayClip, transition: Transition): number {
+  return (next.transition ?? transition) === "none" ? 0 : Math.min(next.fadeIn, next.duration / 2);
+}
+
+export function overlayState(clip: OverlayClip, t: number, transition: Transition, fit: FitMode, motion: KenBurns | undefined, settled = false, next?: OverlayClip): OverlayState | null {
   const end = clip.start + clip.duration;
-  if (t < clip.start || t > end) return null;
+  const holdLen = next ? overlayHold(next, transition) : 0;
+  if (t < clip.start || t > end + (settled ? 0 : holdLen)) return null;
   const tr = clip.transition ?? transition;
   const s: OverlayState = { opacity: clip.opacity, scale: clip.scale, dx: clip.offsetX, dy: clip.offsetY, fill: (clip.fit ?? fit) === "fill" };
   if (settled) return s;
+  const motionLength = clip.duration + holdLen;
+  const kb = () => {
+    if (tr !== "kenBurns" || !motion) return;
+    const p = motionLength > 0 ? clamp((t - clip.start) / motionLength, 0, 1) : 0;
+    s.scale *= kbScale(motion, p);
+    const o = kbOffset(motion, p);
+    s.dx += o[0];
+    s.dy += o[1];
+  };
+  if (t > end && next) {
+    // 次のクリップが入ってくる間: 前のクリップは、次のクリップのエフェクトで押し出される（クロスフェードなら、そのまま残る）
+    const p = holdLen > 0 ? clamp((t - end) / holdLen, 0, 1) : 1;
+    const o = outgoing(next.transition ?? transition, easeInOut(p), 1);
+    s.opacity *= o.opacity; s.scale *= o.scale; s.dx += o.dx;
+    kb();
+    return s;
+  }
   const fi = tr === "none" ? 0 : Math.min(clip.fadeIn, clip.duration / 2);
-  const fo = tr === "none" ? 0 : Math.min(clip.fadeOut, clip.duration / 2);
+  const fo = tr === "none" || next ? 0 : Math.min(clip.fadeOut, clip.duration / 2);
   const pin = fi > 0 ? clamp((t - clip.start) / fi, 0, 1) : 1;
   const pout = fo > 0 ? clamp((end - t) / fo, 0, 1) : 1;
   const ei = easeInOut(pin), eo = easeInOut(pout);
@@ -154,13 +193,7 @@ export function overlayState(clip: OverlayClip, t: number, transition: Transitio
   if (tr === "kenBurns" || tr === "crossfade") s.opacity *= eo;
   s.scale *= inFX.scale * outFX.scale;
   s.dx += inFX.dx + outFX.dx;
-  if (tr === "kenBurns" && motion) {
-    const p = clip.duration > 0 ? clamp((t - clip.start) / clip.duration, 0, 1) : 0;
-    s.scale *= kbScale(motion, p);
-    const o = kbOffset(motion, p);
-    s.dx += o[0];
-    s.dy += o[1];
-  }
+  kb();
   return s;
 }
 

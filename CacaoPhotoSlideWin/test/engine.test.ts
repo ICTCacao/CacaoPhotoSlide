@@ -43,3 +43,21 @@ test("titleState: タイプライターは reveal が進む", () => {
 test("kenBurnsFor: 同じ種は同じ動き", () => {
   assert.deepEqual(kenBurnsFor(42), kenBurnsFor(42));
 });
+
+import { overlayNextMap } from "../src/engine.ts";
+test("V2: すき間なく続くクリップは、前のクリップを残したまま次が重なる（V1 と同じクロスフェード）", () => {
+  const a = newOverlay("a", 0, 2); a.transition = "crossfade"; a.fadeIn = 0.5; a.fadeOut = 0.5;
+  const b = newOverlay("b", 2, 2); b.transition = "crossfade"; b.fadeIn = 0.5; b.fadeOut = 0.5;
+  const next = overlayNextMap([a, b]);
+  assert.equal(next.get(a.id)?.id, b.id);
+  assert.equal(next.get(b.id), undefined);
+  // 前のクリップ: 終わり際でも薄くならず、次が入ってくる間（2.0〜2.5）も不透明のまま
+  assert.equal(overlayState(a, 1.9, "kenBurns", "fit", undefined, false, b)!.opacity, 1);
+  assert.equal(overlayState(a, 2.25, "kenBurns", "fit", undefined, false, b)!.opacity, 1);
+  assert.equal(overlayState(a, 2.6, "kenBurns", "fit", undefined, false, b), null);
+  // 次のクリップ: 透明から入ってくる
+  assert.equal(overlayState(b, 2.0, "kenBurns", "fit", undefined, false)!.opacity, 0);
+  assert.ok(overlayState(b, 2.25, "kenBurns", "fit", undefined, false)!.opacity > 0.4);
+  // 続かないクリップは、これまでどおり自分でフェードアウトする
+  assert.ok(overlayState(a, 1.9, "kenBurns", "fit", undefined, false)!.opacity < 1);
+});

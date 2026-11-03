@@ -60,17 +60,54 @@ enum OverlayMath {
         return (order, lanes)
     }
 
+    /// すき間なく続くクリップ（同じトラックで、前のクリップの終わりに次の始まりが来る）の、次のクリップ。
+    /// V1 の写真と同じように、前のクリップを残したまま、次のクリップをクロスフェードなどで重ねるために使う
+    static func nextMap(_ clips: [OverlayClip]) -> [UUID: OverlayClip] {
+        var out: [UUID: OverlayClip] = [:]
+        for a in clips {
+            let b = clips.filter { $0.id != a.id && $0.track == a.track && abs($0.start - a.end) <= 0.05 }
+                .min { abs($0.start - a.end) < abs($1.start - a.end) }
+            if let b { out[a.id] = b }
+        }
+        return out
+    }
+
+    /// 次のクリップが入ってくる間、前のクリップを残しておく長さ（次のクリップのイン）
+    static func hold(_ next: OverlayClip, transition: Transition) -> TimeInterval {
+        (next.transition ?? transition) == .none ? 0 : min(next.fadeIn, next.duration / 2)
+    }
+
     /// 時刻 t での見え方。出ていない時刻は nil。V1 の写真と同じエフェクト（Ken Burns・クロスフェード・スライド・ズーム・なし）と表示の仕方を使う。
-    /// 入るときはイン、出るときはアウトの秒数をかけて動く。settled なら、出ている時間かどうかだけ見て、動きは付けない
+    /// 入るときはイン、出るときはアウトの秒数をかけて動く。次のクリップがすき間なく続くときは、V1 の写真と同じく、
+    /// 前のクリップを残したまま次のクリップが重なる（アウトのフェードはしない）。settled なら、出ている時間かどうかだけ見て、動きは付けない
     static func state(_ clip: OverlayClip, at t: TimeInterval, transition: Transition, fit: FitMode,
-                      motion: KenBurnsMotion?, settled: Bool = false) -> OverlayState? {
-        guard t >= clip.start, t <= clip.end else { return nil }
+                      motion: KenBurnsMotion?, settled: Bool = false, next: OverlayClip? = nil) -> OverlayState? {
+        let holdLen = next.map { hold($0, transition: transition) } ?? 0
+        guard t >= clip.start, t <= clip.end + (settled ? 0 : holdLen) else { return nil }
         let tr = clip.transition ?? transition
         var s = OverlayState(opacity: clip.opacity, scale: clip.scale, dx: clip.offsetX, dy: clip.offsetY,
                              fill: (clip.fit ?? fit) == .fill)
         if settled { return s }
+        let motionLength = clip.duration + holdLen
+        func kenBurns() {
+            guard tr == .kenBurns, let m = motion else { return }
+            let p = motionLength > 0 ? min(1, max(0, (t - clip.start) / motionLength)) : 0
+            s.scale *= Double(m.scale(p))
+            s.dx += Double(m.offset(p).x)
+            s.dy += Double(m.offset(p).y)
+        }
+        if t > clip.end, let next {
+            // 次のクリップが入ってくる間: 前のクリップは、次のクリップのエフェクトで押し出される（クロスフェードなら、そのまま残る）
+            let p = holdLen > 0 ? min(1, max(0, (t - clip.end) / holdLen)) : 1
+            let outFX = TransitionMath.outgoing(next.transition ?? transition, t: TransitionMath.easeInOut(p), width: 1)
+            s.opacity *= outFX.opacity
+            s.scale *= Double(outFX.scale)
+            s.dx += Double(outFX.dx)
+            kenBurns()
+            return s
+        }
         let fi = tr == .none ? 0 : min(clip.fadeIn, clip.duration / 2)
-        let fo = tr == .none ? 0 : min(clip.fadeOut, clip.duration / 2)
+        let fo = (tr == .none || next != nil) ? 0 : min(clip.fadeOut, clip.duration / 2)
         let pin = fi > 0 ? min(1, max(0, (t - clip.start) / fi)) : 1
         let pout = fo > 0 ? min(1, max(0, (clip.end - t) / fo)) : 1
         let ei = TransitionMath.easeInOut(pin), eo = TransitionMath.easeInOut(pout)
@@ -80,12 +117,7 @@ enum OverlayMath {
         if tr == .kenBurns || tr == .crossfade { s.opacity *= eo }       // 出るときのフェード
         s.scale *= Double(inFX.scale * outFX.scale)
         s.dx += Double(inFX.dx + outFX.dx)
-        if tr == .kenBurns, let m = motion {
-            let p = clip.duration > 0 ? min(1, max(0, (t - clip.start) / clip.duration)) : 0
-            s.scale *= Double(m.scale(p))
-            s.dx += Double(m.offset(p).x)
-            s.dy += Double(m.offset(p).y)
-        }
+        kenBurns()
         return s
     }
 }

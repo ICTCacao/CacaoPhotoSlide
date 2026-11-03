@@ -44,7 +44,7 @@ struct SlideshowView: View {
         ZStack {
             ForEach(controller.overlayOrder) { clip in
                 if let st = OverlayMath.state(clip, at: time, transition: controller.settings.transition, fit: controller.settings.fit,
-                                              motion: controller.overlayMotions[clip.id]),
+                                              motion: controller.overlayMotions[clip.id], next: controller.overlayNext[clip.id]),
                    st.opacity > 0.001, let cg = controller.overlayImages[clip.path] {
                     Image(decorative: cg, scale: 1)
                         .resizable()

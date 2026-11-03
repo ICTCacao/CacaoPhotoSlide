@@ -274,6 +274,7 @@ final class AppModel {
         selection = []
         anchor = nil
         if let v = viewerIndex { viewerIndex = photos.isEmpty ? nil : min(v, photos.count - 1) }
+        restartPreviewIfPlaying()
     }
 
     var removedCount: Int { removedPaths.count }
@@ -300,6 +301,7 @@ final class AppModel {
         anchor = nil
         if order != .manual { order = .manual }
         manualOrder = photos.map(\.path)
+        restartPreviewIfPlaying()
     }
 
     /// ドラッグで target の位置へ。前へ動かすときは target の手前、後ろへ動かすときは target の後ろに入る
@@ -873,6 +875,7 @@ final class AppModel {
             if v.isEmpty { o[photos[i].path] = nil } else { o[photos[i].path] = v }
         }
         overrides = o
+        restartPreviewIfPlaying()
     }
 
     /// 音声ファイルをタイムラインに置く。at が nil なら最後のクリップの後ろ（なければ 0 秒）。track は段
@@ -1330,6 +1333,24 @@ final class AppModel {
             isPreviewing = false
         } else {
             window?.close()
+        }
+    }
+
+    private var restartTask: Task<Void, Never>?
+
+    /// プレビューを流している最中に、V1 の写真（外す・並べ替え・個別設定）が変わったとき、その場で流し直す。
+    /// 流す写真の並びは、始めたときに固めているので、今の時刻から作り直す（止めていたら、止めたまま）
+    func restartPreviewIfPlaying() {
+        guard isPreviewing else { return }
+        restartTask?.cancel()
+        restartTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))        // 続けて変えたときは、まとめて 1 回
+            guard let self, !Task.isCancelled, isPreviewing, let c = activeController else { return }
+            let t = c.timelineTime(at: Date())
+            let paused = c.isPaused
+            stopSlideshow()
+            startPreview(atTime: min(t, timing.total))
+            if paused { activeController?.togglePause() }
         }
     }
 

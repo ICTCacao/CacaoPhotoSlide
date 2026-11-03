@@ -47,6 +47,7 @@ final class SlideshowController {
     private let overlayMaxPixel: Int
     let timing: SlideTiming
     private(set) var overlayOrder: [OverlayClip]          // V2。手前に重ねる順
+    private(set) var overlayNext: [UUID: OverlayClip] = [:]      // すき間なく続く、次の V2 クリップ
     private(set) var overlayMotions: [UUID: KenBurnsMotion] = [:]   // V2 の Ken Burns の動き（クリップごとに決めておく）
     private(set) var overlayImages: [String: CGImage] = [:]
     private let loader: ImageLoader
@@ -79,6 +80,7 @@ final class SlideshowController {
         music = MusicTimeline(clips: settings.clips, document: settings.document)
         self.overlayMaxPixel = maxPixel
         for c in overlayOrder { overlayMotions[c.id] = KenBurnsMotion.random() }
+        overlayNext = OverlayMath.nextMap(overlayOrder)
         loadOverlayImages()
     }
 
@@ -152,6 +154,7 @@ final class SlideshowController {
         settings.overlayClips = overlays
         settings.v1Opacity = v1Opacity
         overlayOrder = OverlayMath.layout(overlays).order
+        overlayNext = OverlayMath.nextMap(overlayOrder)
         for c in overlayOrder where overlayMotions[c.id] == nil { overlayMotions[c.id] = KenBurnsMotion.random() }
         loadOverlayImages()
         updateClips(clips, document: document)

@@ -112,6 +112,7 @@ enum VideoExporter {
         let overlayOrder = OverlayMath.layout(settings.overlayClips).order
         var overlayImages: [String: CGImage] = [:]
         var overlayMotions: [UUID: KenBurnsMotion] = [:]
+        let overlayNext = OverlayMath.nextMap(overlayOrder)
         for clip in overlayOrder { overlayMotions[clip.id] = KenBurnsMotion.random() }
         for clip in overlayOrder where overlayImages[clip.path] == nil {
             if let img = ImageLoader.decode(URL(fileURLWithPath: clip.path), maxPixel: Int(Double(max(w, h)) * 1.3)) { overlayImages[clip.path] = img }
@@ -284,7 +285,7 @@ enum VideoExporter {
 
             var overlayLayers: [OverlayLayer] = []
             for clip in overlayOrder {
-                if let st = OverlayMath.state(clip, at: t, transition: settings.transition, fit: settings.fit, motion: overlayMotions[clip.id]),
+                if let st = OverlayMath.state(clip, at: t, transition: settings.transition, fit: settings.fit, motion: overlayMotions[clip.id], next: overlayNext[clip.id]),
                    st.opacity > 0.001, let img = overlayImages[clip.path] {
                     overlayLayers.append(OverlayLayer(image: img, state: st))
                 }

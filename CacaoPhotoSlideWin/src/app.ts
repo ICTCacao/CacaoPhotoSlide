@@ -1,5 +1,7 @@
 // 画面の骨組み: タブ、下の固定バー、ファイル操作、ドロップ、キー操作。
 import { button, h } from "./dom.ts";
+import { drawFrame } from "./render.ts";
+import { decodeImage } from "./images.ts";
 import { isShowing, startSlideshow } from "./fullscreen.ts";
 import { player } from "./player.ts";
 import { store } from "./store.ts";
@@ -112,7 +114,7 @@ export async function mountApp(root: HTMLElement) {
   if (doc) await store.openDocument(doc); else await store.restoreLast();
   render();
   // 動作確認用: 環境変数 CACAOPHOTOSLIDE_JS に JavaScript のファイルを指定すると、読み込みのあとで実行する（画面にイベントを送って、操作を試せる）
-  (window as any).__cps = { store, player, openSheet, closeSheet, startSlideshow, native };
+  (window as any).__cps = { store, player, openSheet, closeSheet, startSlideshow, native, drawFrame, decodeImage };
   const js = await native.getEnv("CACAOPHOTOSLIDE_JS").catch(() => null);
   if (js) {
     try { const code = await native.readText(js); setTimeout(() => { try { new Function(code)(); } catch (e) { document.title = `JS ERROR ${e}`; } }, 1500); } catch { /* なし */ }

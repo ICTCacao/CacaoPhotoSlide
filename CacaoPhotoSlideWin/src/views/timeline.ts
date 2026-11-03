@@ -454,7 +454,7 @@ function buildTitles(c: HTMLElement, g: Geo) {
     const sel = store.selTitles.has(item.id);
     const hidden = store.trackSetting(trackRef("title", item.track)).hidden;
     const bar = h("div", { class: `bar title${sel ? " sel" : ""}${hidden ? " dim" : ""}`, "data-id": item.id, style: { left: `${x}px`, top: `${titleY(g, Math.min(item.track, g.tCount - 1))}px`, width: `${bw}px`, height: `${TITLE_LANE}px` },
-      title: `「${item.text}」　ドラッグで出す時刻、右端で長さ。ダブルクリックで編集` }, `あぁ ${item.text.split("\n")[0]}`);
+      title: `「${item.text}」　ドラッグで出す時刻、右端で長さ。ダブルクリックで編集` }, item.text.split("\n")[0]);
     if (item.duration > 0) {
       const hd = h("div", { class: "handle r" });
       edgeDrag(hd, g, item.duration, (v) => store.updateTitle(item.id, (t) => { t.duration = Math.max(0.5, round1(v)); }));

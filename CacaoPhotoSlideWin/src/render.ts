@@ -15,6 +15,7 @@ export interface Scene {
   transition: Transition;          // 設定のタブの値（V2 の既定）
   fit: FitMode;
   endFade: number;
+  overlayNext?: Map<string, OverlayClip>;   // すき間なく続く、次の V2 クリップ
   loop?: boolean;
   exporting?: boolean;             // 書き出し: 「なし」でも、最後は切り替えの長さぶん黒へ落とす（Mac 版と同じ）
 }
@@ -80,7 +81,7 @@ export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, t
 
   // V2（重ねる写真）
   for (const clip of overlayOrder(scene.overlays)) {
-    const st = overlayState(clip, t, scene.transition, scene.fit, overlayMotion(scene, clip), opts.settled);
+    const st = overlayState(clip, t, scene.transition, scene.fit, overlayMotion(scene, clip), opts.settled, scene.overlayNext?.get(clip.id));
     if (!st || st.opacity <= 0.001) continue;
     const img = imgs.overlay(clip.path);
     if (!img) continue;

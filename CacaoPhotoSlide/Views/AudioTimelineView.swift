@@ -666,11 +666,8 @@ struct AudioTimelineView: View {
             RoundedRectangle(cornerRadius: 4)
                 .strokeBorder(model.selectedTitleIDs.contains(item.id) ? Color.white.opacity(0.9) : Color.cyan,
                               lineWidth: model.selectedTitleIDs.contains(item.id) ? 2 : 1)
-            HStack(spacing: 3) {
-                Image(systemName: "textformat").font(.system(size: 9))
-                Text(item.text.components(separatedBy: "\n").first ?? "").font(.caption2).lineLimit(1)
-            }
-            .padding(.horizontal, 5)
+            Text(item.text.components(separatedBy: "\n").first ?? "").font(.caption2).lineLimit(1)
+                .padding(.horizontal, 5)
             .foregroundStyle(.white)
         }
         .frame(width: bw, height: titleLane)

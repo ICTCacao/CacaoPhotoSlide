@@ -4,7 +4,7 @@ import {
   type TrackSettings, type Transition, defaultProject, defaultTrackSettings, newMusic, newOverlay, newTitle, normalizeProject, trackKey, uuid,
 } from "./model.ts";
 import {
-  SlideTiming, clamp, clipEnd, clipLength, effectiveClips, effectiveOverlays, effectiveTitles, mulberry32, timingSettings, v1Opacity,
+  SlideTiming, clamp, clipEnd, clipLength, overlayNextMap, effectiveClips, effectiveOverlays, effectiveTitles, mulberry32, timingSettings, v1Opacity,
 } from "./engine.ts";
 import type { Scene } from "./render.ts";
 import { AudioBank } from "./audio.ts";
@@ -89,11 +89,12 @@ export class Store {
 
   scene(): Scene {
     const paths = this.playPaths();
+    const overlays = effectiveOverlays(this.p.overlayClips, this.p.trackSettings);
     return {
       paths, timing: new SlideTiming(paths, timingSettings(this.p), this.p.overrides), seed: this.seed,
-      v1Opacity: v1Opacity(this.p.trackSettings), overlays: effectiveOverlays(this.p.overlayClips, this.p.trackSettings),
+      v1Opacity: v1Opacity(this.p.trackSettings), overlays,
       titles: effectiveTitles(this.p.titles, this.p.trackSettings), transition: this.p.transition, fit: this.p.fit,
-      endFade: this.p.endFade, loop: this.p.loop,
+      endFade: this.p.endFade, loop: this.p.loop, overlayNext: overlayNextMap(overlays),
     };
   }
 
@@ -152,6 +153,7 @@ export class Store {
     this.photos = list;
     this.scanning = false;
     this.message = list.length ? "" : "写真が見つかりませんでした";
+    this.onLiveChange?.();
     if (this.pendingSelection.length) {
       const want = new Set(this.pendingSelection);
       for (const p of list) if (want.has(p)) this.selection.add(p);
@@ -194,7 +196,7 @@ export class Store {
     this.photos = this.photos.filter((p) => !set.has(p));
     this.selection.clear(); this.selAnchor = null;
     for (const p of set) this.timelineSel.delete(p);
-    this.emit();
+    this.live();                      // 流している最中なら、その場で反映する
   }
   get removedCount() { return this.removed.size; }
   restoreRemoved() { if (!this.removed.size) return; this.removed.clear(); void this.rescan(); }
@@ -234,7 +236,7 @@ export class Store {
     this.photos = rest;
     this.p.order = "manual";
     this.p.manualOrder = [...this.photos];
-    this.emit();
+    this.live();
   }
 
   /** target の写真の位置へ。前へ動かすなら手前、後ろへ動かすなら後ろに入る */
