@@ -16,6 +16,7 @@ struct AudioTimelineView: View {
     @State private var magnifyStart: Double?
     @State private var edgeDrag: (key: String, base: Double, pps: CGFloat)?
     @State private var moveDrag: (id: UUID, base: Double, pps: CGFloat)?
+    @State private var hoverTime: TimeInterval = 0    // 右クリックの対象を決めるための、マウスのある時刻
 
     private let labelWidth: CGFloat = 34
     private let rulerHeight: CGFloat = 18
@@ -123,6 +124,10 @@ struct AudioTimelineView: View {
                         }
                 )
                 .help("ドラッグで再生ヘッドを動かす。クリックでそこから再生")
+                .onContinuousHover { phase in
+                    if case .active(let p) = phase { hoverTime = Double(p.x / w) * total }
+                }
+                .contextMenu { photoMenu(timing: timing, time: hoverTime) }
             durationHandles(width: w, total: total, timing: timing)
             playhead(width: w, total: total, proxy: proxy)
         }
@@ -131,6 +136,27 @@ struct AudioTimelineView: View {
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers, location in
             let lane = min(model.trackCount - 1, max(0, Int((location.y - clipTop) / laneStep)))
             return handleDrop(providers, at: max(0, location.x / w) * total, track: lane)
+        }
+    }
+
+    // MARK: 写真の右クリック（「写真」のタブのサムネイルと同じメニュー）
+
+    @ViewBuilder
+    private func photoMenu(timing: SlideTiming, time: TimeInterval) -> some View {
+        if let i = model.photoIndex(playIndex: timing.index(at: time)) {
+            if model.selection.contains(i), model.selection.count >= 2 {
+                Button("選んだ \(model.selection.count) 枚を外す") { model.removeSelectedPhotos() }
+            } else {
+                Button("この写真を外す") { model.removePhoto(i) }
+            }
+            Button("表示時間・エフェクトを変える…") { model.openOverrides(for: i) }
+            Button("拡大して見る") { model.showViewer(i) }
+            Divider()
+            let targets = model.selection.contains(i) ? model.selection.sorted() : [i]
+            Button("先頭へ移動") { model.moveToEdge(targets, front: true) }
+            Button("最後へ移動") { model.moveToEdge(targets, front: false) }
+            Divider()
+            Button("Finder で表示") { NSWorkspace.shared.activateFileViewerSelecting([model.photos[i]]) }
         }
     }
 

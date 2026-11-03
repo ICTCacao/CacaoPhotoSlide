@@ -9,7 +9,7 @@ enum MainTab: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .photos: return "写真"
-        case .preview: return "プレビュー"
+        case .preview: return "タイムライン"
         case .settings: return "設定"
         }
     }
@@ -385,6 +385,12 @@ final class AppModel {
     }
 
     // MARK: 再生ヘッド
+
+    /// タイムライン上の k 番目の写真が、photos の何番目か
+    func photoIndex(playIndex k: Int) -> Int? {
+        let urls = playURLs
+        return urls.indices.contains(k) ? photos.firstIndex(of: urls[k]) : nil
+    }
 
     /// 再生ヘッドを動かす（スクラブ）。流している最中なら、その時刻の写真へ飛ぶ
     func scrub(to time: TimeInterval) {
