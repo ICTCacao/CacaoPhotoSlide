@@ -30,7 +30,7 @@ struct TitlesSheet: View {
                     if !model.titles.isEmpty { item.anchor = .top; item.size = 0.05 }
                     model.titles.append(item)
                 } label: { Label("追加", systemImage: "plus") }
-                Text("時刻はスライドショーの頭からの秒。「出す秒数」0 は最後まで")
+                Text("時刻はスライドショーの頭からの秒。「ずっと表示」は、出す時刻から最後まで")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("閉じる") { dismiss() }
@@ -85,10 +85,14 @@ struct TitlesSheet: View {
                 Text("出す時刻")
                 TextField("", value: item.start, format: .number)
                     .frame(width: 52).textFieldStyle(.roundedBorder)
-                Text("秒　出す秒数")
+                Text("秒　から")
                 TextField("", value: item.duration, format: .number)
                     .frame(width: 52).textFieldStyle(.roundedBorder)
-                Text("秒")
+                    .disabled(item.wrappedValue.duration <= 0)
+                Text("秒間")
+                Toggle("ずっと表示", isOn: Binding(
+                    get: { item.wrappedValue.duration <= 0 },
+                    set: { item.wrappedValue.duration = $0 ? 0 : 5 }))
                 Spacer()
             }
         }
