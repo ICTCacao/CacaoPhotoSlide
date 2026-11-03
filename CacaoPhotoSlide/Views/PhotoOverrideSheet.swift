@@ -73,6 +73,7 @@ struct PhotoOverrideSheet: View {
         .padding(18)
         .frame(width: 520)
         .onAppear(perform: load)
+        .onDisappear { model.overrideTargetIndices = nil }
     }
 
     /// 対象の写真のサムネイル。1 枚なら大きく、複数なら先頭から並べる（残りは枚数で示す）
@@ -151,7 +152,7 @@ struct PhotoOverrideSheet: View {
 
     /// 最初の写真の今の個別設定を出しておく
     private func load() {
-        indices = model.selection.sorted()
+        indices = model.overrideTargetIndices ?? model.selection.sorted()
         for i in indices.prefix(6) { model.requestThumbnail(i) }
         let first = indices.first.flatMap { model.photos.indices.contains($0) ? model.overrides[model.photos[$0].path] : nil }
         useDwell = first?.dwell != nil

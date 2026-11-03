@@ -103,6 +103,10 @@ final class AppModel {
     var selectedOverlays: Set<UUID> = []       // タイムラインで選んでいる V2 クリップ
     var overlayAnchor: UUID?                   // ⇧クリックの起点
     var editingOverlay: UUID?                  // 設定の画面を開いている V2 クリップ
+    /// タイムラインの V1 で選んでいる写真。「写真」のタブの選択（＝その写真だけを流す）とは別で、流す写真は変わらない
+    var timelineSelection: Set<URL> = []
+    var timelineAnchor: Int?
+    var overrideTargetIndices: [Int]?          // 表示時間・エフェクトの画面の対象（nil なら「写真」のタブの選択）
     var viewerImagePath: String?               // 拡大して見ている V2 の写真
     var selectedTitleIDs: Set<UUID> = []   // タイトルの編集画面で選んでいるタイトル（プレビューに出す）
     var transitionDuration: Double { didSet { ud.set(transitionDuration, forKey: Prefs.transitionDuration) } }
@@ -262,7 +266,7 @@ final class AppModel {
 
     func removeSelectedPhotos() { removePhotos(Array(selection)) }
 
-    private func removePhotos(_ indices: [Int]) {
+    func removePhotos(_ indices: [Int]) {
         let set = Set(indices.filter { photos.indices.contains($0) })
         guard !set.isEmpty else { return }
         for i in set { removedPaths.insert(photos[i].path) }
@@ -470,6 +474,33 @@ final class AppModel {
         guard urls.indices.contains(k), let i = photos.firstIndex(of: urls[k]) else { return }
         let cur = overrides[photos[i].path]
         setOverride([i], dwell: abs(newDwell - dwell) < 0.001 ? nil : newDwell, transition: cur?.transition, fit: cur?.fit)
+    }
+
+    /// タイムラインの V1 の写真を押したとき。クリック: その 1 枚。⌘: 追加／解除。⇧: 起点から押した所まで
+    func selectTimelinePhoto(_ k: Int, modifiers: NSEvent.ModifierFlags) {
+        let urls = playURLs
+        guard urls.indices.contains(k) else { return }
+        if modifiers.contains(.command) {
+            if timelineSelection.contains(urls[k]) { timelineSelection.remove(urls[k]) } else { timelineSelection.insert(urls[k]) }
+            timelineAnchor = k
+        } else if modifiers.contains(.shift), let a = timelineAnchor, urls.indices.contains(a) {
+            timelineSelection.formUnion(urls[min(a, k)...max(a, k)])
+        } else {
+            timelineSelection = [urls[k]]
+            timelineAnchor = k
+        }
+    }
+
+    /// タイムラインで選んでいる写真の、photos の番号
+    var timelineSelectedIndices: [Int] { photos.indices.filter { timelineSelection.contains(photos[$0]) } }
+
+    /// 選んでいる写真をまとめて、k1 番目の写真の位置へ動かす
+    func moveTimelineGroup(from k0: Int, to k1: Int) {
+        let idx = timelineSelectedIndices
+        guard idx.count >= 2, let j = photoIndex(playIndex: k1), !idx.contains(j), let first = idx.first else { return }
+        let url = photos[first]
+        movePhotos(idx, to: j)
+        if let nk = playURLs.firstIndex(of: url) { playhead = timing.starts[nk] }
     }
 
     /// タイムラインで写真をドラッグして並べ替える（流す写真の k0 番目を k1 番目の位置へ）。再生ヘッドは動かした写真の頭へ
@@ -1248,6 +1279,21 @@ final class AppModel {
         activeController = controller
         isShowing = true
         controller.start(at: first)
+    }
+
+    /// 起動引数 -demoSheet titles / overlay / track で、書類を開いたあとに編集の画面を開く（記事の画面写真を撮るための隠し機能）
+    func demoOpenSheet() {
+        guard let kind = ud.string(forKey: "demoSheet") else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard let self else { return }
+            switch kind {
+            case "titles": selectedTitleIDs = titles.first.map { [$0.id] } ?? []; showTitles = true
+            case "overlay": editingOverlay = overlayClips.first?.id
+            case "track": editingTrack = TrackRef(kind: .overlay, index: 0)
+            default: break
+            }
+        }
     }
 
     private var spaceMonitor: Any?

@@ -16,6 +16,7 @@ struct AudioTimelineView: View {
     @State private var magnifyStart: Double?
     @State private var edgeDrag: (key: String, base: Double, pps: CGFloat)?
     @State private var moveDrag: (id: UUID, base: Double, pps: CGFloat, track: Int)?
+    @State private var marquee: (start: CGPoint, current: CGPoint, base: (overlays: Set<UUID>, titles: Set<UUID>, photos: Set<URL>))?   // 何もないところからの範囲選択
     @State private var overlayDrag: (primary: UUID, pps: CGFloat, origins: [UUID: (start: TimeInterval, track: Int)])?   // V2 クリップを（まとめて）動かし中
     @State private var reorder: (from: Int, to: Int)?      // 写真をドラッグして並べ替え中（流す写真の中の番号）
     @State private var hoverTime: TimeInterval = 0    // 右クリックの対象を決めるための、マウスのある時刻
@@ -28,8 +29,8 @@ struct AudioTimelineView: View {
     private let clipHeight: CGFloat = 26
     private let laneGap: CGFloat = 6
     private var laneStep: CGFloat { clipHeight + laneGap }
-    private let v2Lane: CGFloat = 26
-    private let v2Step: CGFloat = 30
+    private let v2Lane: CGFloat = 36          // V2 の行（V1 のようにサムネイルが見える高さ）
+    private let v2Step: CGFloat = 40
     // 上から: ルーラー・T（上ほど大きい番号）・V2 以上（上ほど大きい番号）・V1・A1、A2…
     private var tCount: Int { model.titleTrackCount }
     private var vCount: Int { model.overlayTrackCount }          // V2 以上のトラックの数
@@ -191,13 +192,25 @@ struct AudioTimelineView: View {
             }
             rulerAndBand(width: w, total: total, timing: timing)
             durationHandles(width: w, total: total, timing: timing)
+            if let m = marquee {
+                let r = CGRect(x: min(m.start.x, m.current.x), y: min(m.start.y, m.current.y),
+                               width: abs(m.start.x - m.current.x), height: abs(m.start.y - m.current.y))
+                Rectangle().fill(Color.accentColor.opacity(0.14))
+                    .overlay(Rectangle().strokeBorder(Color.accentColor.opacity(0.9), lineWidth: 1))
+                    .frame(width: r.width, height: r.height)
+                    .offset(x: r.minX, y: r.minY)
+                    .allowsHitTesting(false)
+            }
             playhead(width: w, total: total, proxy: proxy)
         }
         .contentShape(Rectangle())
+        .gesture(marqueeGesture(width: w, total: total))
         .onTapGesture { location in
             // 何もないところ（T・V2 以上・A の行の空き）を押すと、その時刻に再生ヘッドが動く。再生は ▶ ボタンか Space
             model.selectedClip = nil
             model.selectedOverlays = []
+            model.selectedTitleIDs = []
+            model.timelineSelection = []
             model.scrub(to: Double(max(0, min(location.x, w)) / w) * total)
         }
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers, location in
@@ -232,15 +245,19 @@ struct AudioTimelineView: View {
         v1TrackMenu()
         Divider()
         if let i = model.photoIndex(playIndex: timing.index(at: time)) {
-            if model.selection.contains(i), model.selection.count >= 2 {
-                Button("選んだ \(model.selection.count) 枚を外す") { model.removeSelectedPhotos() }
+            let group = model.timelineSelection.contains(model.photos[i]) ? model.timelineSelectedIndices : [i]
+            if group.count >= 2 {
+                Button("選んだ \(group.count) 枚を外す") { model.removePhotos(group); model.timelineSelection = [] }
             } else {
                 Button("この写真を外す") { model.removePhoto(i) }
             }
-            Button("表示時間・エフェクトを変える…") { model.openOverrides(for: i) }
+            Button(group.count >= 2 ? "選んだ \(group.count) 枚の表示時間・エフェクトを変える…" : "表示時間・エフェクトを変える…") {
+                model.overrideTargetIndices = group
+                model.showOverrides = true
+            }
             Button("拡大して見る") { model.showViewer(i) }
             Divider()
-            let targets = model.selection.contains(i) ? model.selection.sorted() : [i]
+            let targets = group
             Button("先頭へ移動") { model.moveToEdge(targets, front: true) }
             Button("最後へ移動") { model.moveToEdge(targets, front: false) }
             Divider()
@@ -284,13 +301,31 @@ struct AudioTimelineView: View {
                             let r = reorder
                             reorder = nil
                             if let r, r.from != r.to {
-                                model.moveTimelinePhoto(from: r.from, to: r.to)
+                                let urls = model.playURLs
+                                if urls.indices.contains(r.from), model.timelineSelection.count >= 2, model.timelineSelection.contains(urls[r.from]) {
+                                    model.moveTimelineGroup(from: r.from, to: r.to)        // 選んでいる写真を、まとめて
+                                } else {
+                                    model.moveTimelinePhoto(from: r.from, to: r.to)
+                                }
                             } else if hypot(v.translation.width, v.translation.height) < 4 {
+                                model.selectTimelinePhoto(timing.index(at: time(v.location.x)), modifiers: NSEvent.modifierFlags)
                                 model.scrub(to: time(v.location.x))
                             }
                         }
                 )
                 .help("クリックでその写真を表示。ドラッグで順番を変える")
+            // 選んでいる V1 の写真
+            let urls = model.playURLs
+            if !model.timelineSelection.isEmpty, urls.count == bounds.count - 1 {
+                ForEach(urls.indices.filter { model.timelineSelection.contains(urls[$0]) }, id: \.self) { k in
+                    let x0 = CGFloat(bounds[k] / total) * w, x1 = CGFloat(bounds[k + 1] / total) * w
+                    Rectangle().fill(Color.accentColor.opacity(0.22))
+                        .overlay(Rectangle().strokeBorder(Color.white.opacity(0.9), lineWidth: 2))
+                        .frame(width: max(3, x1 - x0), height: bandHeight)
+                        .offset(x: x0, y: bandTop)
+                        .allowsHitTesting(false)
+                }
+            }
             if let r = reorder, bounds.indices.contains(r.from + 1), bounds.indices.contains(r.to + 1) {
                 let x0 = CGFloat(bounds[r.from] / total) * w
                 let x1 = CGFloat(bounds[r.from + 1] / total) * w
@@ -391,6 +426,50 @@ struct AudioTimelineView: View {
         }
     }
 
+    // MARK: 範囲選択（何もないところからドラッグ）
+
+    /// 何もないところから斜めにドラッグすると、その四角に触れた V1・V2 の写真とタイトルが選ばれる（⇧・⌘ を押していれば、いまの選択に足す）。
+    /// ルーラー・V1 の帯・クリップ・端のつまみから始めたときは、それぞれの操作が先に働く
+    private func marqueeGesture(width w: CGFloat, total: TimeInterval) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .local)
+            .onChanged { v in
+                if marquee == nil {
+                    let add = !NSEvent.modifierFlags.intersection([.shift, .command]).isEmpty
+                    marquee = (v.startLocation, v.location, add ? (model.selectedOverlays, model.selectedTitleIDs, model.timelineSelection) : ([], [], []))
+                }
+                guard var m = marquee else { return }
+                m.current = v.location
+                marquee = m
+                let r = CGRect(x: min(m.start.x, m.current.x), y: min(m.start.y, m.current.y),
+                               width: abs(m.start.x - m.current.x), height: abs(m.start.y - m.current.y))
+                var ov = m.base.overlays, ti = m.base.titles, ph = m.base.photos
+                // V1（写真の帯）: 四角に触れた写真
+                let urls = model.playURLs, bounds = model.timing.bounds
+                if urls.count == bounds.count - 1, r.maxY >= bandTop, r.minY <= bandTop + bandHeight {
+                    for k in urls.indices {
+                        let x0 = CGFloat(bounds[k] / total) * w, x1 = CGFloat(bounds[k + 1] / total) * w
+                        if r.maxX >= x0, r.minX <= max(x1, x0 + 1) { ph.insert(urls[k]) }
+                    }
+                }
+                for c in model.overlayClips {
+                    let s = min(max(0, c.start), total), e = min(c.end, total)
+                    let bw = max(24, CGFloat((e - s) / total) * w)
+                    let x = min(CGFloat(s / total) * w, max(0, w - bw))
+                    if r.intersects(CGRect(x: x, y: overlayY(min(c.track, max(0, vCount - 1))), width: bw, height: v2Lane)) { ov.insert(c.id) }
+                }
+                for t in model.titles {
+                    let s = min(max(0, t.start), total), e = t.duration > 0 ? min(t.start + t.duration, total) : total
+                    let bw = max(24, CGFloat((e - s) / total) * w)
+                    let x = min(CGFloat(s / total) * w, max(0, w - bw))
+                    if r.intersects(CGRect(x: x, y: titleY(min(t.track, max(0, tCount - 1))), width: bw, height: titleLane)) { ti.insert(t.id) }
+                }
+                if ph != model.timelineSelection { model.timelineSelection = ph }
+                if ov != model.selectedOverlays { model.selectedOverlays = ov }
+                if ti != model.selectedTitleIDs { model.selectedTitleIDs = ti }
+            }
+            .onEnded { _ in marquee = nil }
+    }
+
     // MARK: V2 のクリップの右クリック（V1 の写真と同じ並び）
 
     @ViewBuilder
@@ -470,22 +549,34 @@ struct AudioTimelineView: View {
         let selected = model.selectedOverlays.contains(clip.id)
         let id = clip.id
         let url = URL(fileURLWithPath: clip.path)
-        return ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 4).fill(Color.indigo.opacity(selected ? 0.85 : 0.55 * max(0.4, clip.opacity)))
-            RoundedRectangle(cornerRadius: 4).strokeBorder(selected ? Color.white.opacity(0.8) : Color.indigo, lineWidth: selected ? 2 : 1)
-            HStack(spacing: 4) {
-                if let cg = model.thumbnails[url] {
-                    Image(decorative: cg, scale: 1).resizable().aspectRatio(contentMode: .fill)
-                        .frame(width: 30, height: v2Lane - 4).clipped()
-                        .clipShape(RoundedRectangle(cornerRadius: 2)).opacity(max(0.35, clip.opacity))
-                        .padding(.leading, 2)
+        return ZStack(alignment: .bottomLeading) {
+            Rectangle().fill(Color.indigo.opacity(0.55))
+            if let cg = model.thumbnails[url] {
+                // V1 の写真と同じように、サムネイルをクリップの幅いっぱいに並べる（濃さは不透明度に合わせる）
+                let tw = min(90, max(24, v2Lane * CGFloat(cg.width) / CGFloat(max(1, cg.height))))
+                HStack(spacing: 0) {
+                    ForEach(0..<min(60, Int(ceil(bw / tw))), id: \.self) { _ in
+                        Image(decorative: cg, scale: 1).resizable().aspectRatio(contentMode: .fill)
+                            .frame(width: tw, height: v2Lane).clipped()
+                    }
                 }
-                Text(url.lastPathComponent).font(.caption2).lineLimit(1)
-                Spacer(minLength: 0)
-                Text("\(Int((clip.opacity * 100).rounded()))%").font(.caption2).monospacedDigit().padding(.trailing, 10)
+                .frame(width: bw, height: v2Lane, alignment: .leading).clipped()
+                .opacity(max(0.35, clip.opacity))
             }
+            HStack(spacing: 4) {
+                Text(url.lastPathComponent).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 0)
+                Text("\(Int((clip.opacity * 100).rounded()))%").monospacedDigit().lineLimit(1).fixedSize()
+                    .padding(.trailing, 8)
+            }
+            .font(.system(size: 9, weight: .semibold))
+            .padding(.leading, 4)
+            .padding(.vertical, 1)
+            .background(.black.opacity(0.55))
             .foregroundStyle(.white)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(selected ? Color.white.opacity(0.95) : Color.indigo, lineWidth: selected ? 2.5 : 1))
         .frame(width: bw, height: v2Lane)
         .overlay(alignment: .trailing) {
             edgeHandle(key: "ov\(id)", base: clip.duration, width: w, total: total, height: v2Lane) { v in
@@ -572,7 +663,9 @@ struct AudioTimelineView: View {
         let id = item.id
         return ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 4).fill(Color.cyan.opacity(0.6))
-            RoundedRectangle(cornerRadius: 4).strokeBorder(Color.cyan, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(model.selectedTitleIDs.contains(item.id) ? Color.white.opacity(0.9) : Color.cyan,
+                              lineWidth: model.selectedTitleIDs.contains(item.id) ? 2 : 1)
             HStack(spacing: 3) {
                 Image(systemName: "textformat").font(.system(size: 9))
                 Text(item.text.components(separatedBy: "\n").first ?? "").font(.caption2).lineLimit(1)

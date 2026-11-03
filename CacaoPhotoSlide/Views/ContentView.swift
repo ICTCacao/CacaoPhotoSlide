@@ -45,7 +45,7 @@ struct ContentView: View {
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
         }
-        .onAppear { model.installSpaceKey(); model.resolveTrackOverlaps() }
+        .onAppear { model.installSpaceKey(); model.resolveTrackOverlaps(); model.demoOpenSheet() }
         .onChange(of: model.tab) { old, new in
             // プレビューのタブを離れたら、そこで流していたものは止める
             if old == .preview, new != .preview, model.isPreviewing { model.stopSlideshow() }
