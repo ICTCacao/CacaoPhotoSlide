@@ -2,3 +2,10 @@ build/
 .DS_Store
 xcuserdata/
 dist/*.app
+# Windows 版（CacaoPhotoSlideWin: Tauri）
+CacaoPhotoSlideWin/node_modules/
+CacaoPhotoSlideWin/dist/
+CacaoPhotoSlideWin/src-tauri/target/
+CacaoPhotoSlideWin/src-tauri/gen/schemas/
+CacaoPhotoSlideWin/src-tauri/icons/android/
+CacaoPhotoSlideWin/src-tauri/icons/ios/

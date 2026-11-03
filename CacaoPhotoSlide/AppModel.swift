@@ -1281,7 +1281,7 @@ final class AppModel {
         controller.start(at: first)
     }
 
-    /// 起動引数 -demoSheet titles / overlay / track で、書類を開いたあとに編集の画面を開く（記事の画面写真を撮るための隠し機能）
+    /// 起動引数 -demoSheet titles / overlay / track / select / selectAll で、書類を開いたあとに編集の画面を開く（記事の画面写真を撮るための隠し機能）
     func demoOpenSheet() {
         guard let kind = ud.string(forKey: "demoSheet") else { return }
         Task { [weak self] in
@@ -1291,6 +1291,11 @@ final class AppModel {
             case "titles": selectedTitleIDs = titles.first.map { [$0.id] } ?? []; showTitles = true
             case "overlay": editingOverlay = overlayClips.first?.id
             case "track": editingTrack = TrackRef(kind: .overlay, index: 0)
+            case "select": selectedOverlays = Set(overlayClips.map(\.id))      // V2 のクリップを全部選んだ状態
+            case "selectAll":                                                   // 範囲選択のあと（V2・タイトル・V1 の写真）
+                selectedOverlays = Set(overlayClips.map(\.id))
+                selectedTitleIDs = Set(titles.prefix(2).map(\.id))
+                timelineSelection = Set(photos.dropFirst(2).prefix(4))
             default: break
             }
         }

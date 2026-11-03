@@ -117,6 +117,20 @@ rm -rf dist/CacaoPhotoSlide.app && cp -R build/DerivedData/Build/Products/Releas
 
 署名していないので、初回は Applications 内のアプリを右クリック →「開く」。
 
+## Windows 版
+
+`CacaoPhotoSlideWin/`（Tauri 2 + TypeScript）。Mac 版と同じ機能（トラック・V2・タイトル・範囲選択・mp4 書き出しなど）を、
+Windows 10 / 11（x64・ARM64）で使えます。**書類（.cpsd）は Mac 版と同じ形式**で、フォルダごと持っていけば相互に開けます
+（写真を書類の中にコピーして保存した書類なら、そのまま開けます）。
+
+- 画面と、mp4 に書き出す絵は、同じ描画の関数（Canvas）を使います。書き出しは ffmpeg に 1 コマずつ渡して H.264 + AAC の mp4 にします。
+  ffmpeg は、初めての書き出しのときに GitHub から自動で取ってきます（Windows のみ。数十 MB）。
+- フォントは、その PC に入っているものから選べます（書類に入っているフォントが無い PC では、標準のフォントで表示します）。
+- 配布物は `./CacaoPhotoSlideWin/make-dist.sh [x64|arm64]`（Mac 上で cargo-xwin によるクロスビルド）。`dist/` に setup.exe と zip ができます。
+  署名していないので、初回は SmartScreen の「詳細情報」→「実行」。
+- 動作確認の仕掛け（環境変数）: `CACAOPHOTOSLIDE_DOC`（起動時に開く書類）、`CACAOPHOTOSLIDE_TAB`、`CACAOPHOTOSLIDE_SHEET`、
+  `CACAOPHOTOSLIDE_EXPORT`（起動時に mp4 を書き出して終わる）、`CACAOPHOTOSLIDE_JS`（読み込み後に実行する JavaScript）。
+
 ## ライセンス
 
 MIT License（[LICENSE](LICENSE)）。

@@ -1,0 +1,30 @@
+[package]
+name = "cacaophotoslidewin"
+version = "2.5.26"
+description = "CacaoPhotoSlide Windows 版（写真のスライドショー映像づくりに特化したアプリ）"
+authors = ["ICTCacao"]
+edition = "2021"
+
+[lib]
+name = "cacaophotoslidewin_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "io-util", "sync", "rt-multi-thread", "macros", "time", "fs"] }
+dirs = "6"
+kamadak-exif = "0.6"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
