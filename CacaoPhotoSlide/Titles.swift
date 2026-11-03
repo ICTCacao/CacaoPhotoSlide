@@ -68,12 +68,15 @@ struct TitleItem: Identifiable, Codable, Equatable {
     var size: Double = 0.07          // 文字の大きさ（画面の高さに対する割合）
     var color = "#FFFFFF"            // sRGB の 16 進
     var bold = true
+    var fontName = ""               // フォントのファミリー名。空なら標準（システムのフォント）
     var shadow = true
     var start: Double = 0            // 出し始める時刻（スライドショーの頭から何秒）
     var duration: Double = 5         // 出している秒数。0 なら最後まで
     var offsetX: Double = 0          // 位置の微調整（画面の幅に対する割合。右が +）
     var offsetY: Double = 0          // 位置の微調整（画面の高さに対する割合。下が +）
     var effect = TitleEffect.fade    // 出るとき・消えるときの動き
+    var track = 0                    // タイトルのトラック（0 が T1。大きいほど上）
+    var opacity: Double = 1          // 濃さ（トラックの透過率を掛けるために使う）
     var effectDuration: Double = 0.5 // その動きにかける秒数
 
     init() {}
@@ -86,11 +89,14 @@ struct TitleItem: Identifiable, Codable, Equatable {
         size = try c.decodeIfPresent(Double.self, forKey: .size) ?? 0.07
         color = try c.decodeIfPresent(String.self, forKey: .color) ?? "#FFFFFF"
         bold = try c.decodeIfPresent(Bool.self, forKey: .bold) ?? true
+        fontName = try c.decodeIfPresent(String.self, forKey: .fontName) ?? ""
         shadow = try c.decodeIfPresent(Bool.self, forKey: .shadow) ?? true
         start = try c.decodeIfPresent(Double.self, forKey: .start) ?? 0
         duration = try c.decodeIfPresent(Double.self, forKey: .duration) ?? 5
         offsetX = try c.decodeIfPresent(Double.self, forKey: .offsetX) ?? 0
         offsetY = try c.decodeIfPresent(Double.self, forKey: .offsetY) ?? 0
+        track = try c.decodeIfPresent(Int.self, forKey: .track) ?? 0
+        opacity = try c.decodeIfPresent(Double.self, forKey: .opacity) ?? 1
         effect = try c.decodeIfPresent(TitleEffect.self, forKey: .effect) ?? .fade
         effectDuration = try c.decodeIfPresent(Double.self, forKey: .effectDuration) ?? 0.5
     }
@@ -122,9 +128,33 @@ struct TitleState {
     var reveal: Double = 1       // タイプライターで、何割の文字を見せるか
 }
 
+/// タイトルのフォント（画面と mp4 で同じものを使う）
+enum TitleFont {
+    /// 日本語のタイトルによく使うもの。入っているものだけを、フォント選びの先頭に出す
+    private static let recommended = ["ヒラギノ角ゴシック", "ヒラギノ丸ゴ ProN", "ヒラギノ明朝 ProN", "游ゴシック体", "游明朝体", "Hiragino Sans",
+                                      "Hiragino Mincho ProN", "Hiragino Maru Gothic ProN", "YuGothic", "YuMincho", "Osaka", "Helvetica Neue", "Times New Roman"]
+
+    static let all: [String] = NSFontManager.shared.availableFontFamilies.sorted()
+    static var recommendedInstalled: [String] { recommended.filter { all.contains($0) } }
+
+    /// item のフォントと太さ、大きさの NSFont（なければ標準のフォント）
+    static func resolve(_ item: TitleItem, size: CGFloat) -> NSFont {
+        let fallback = NSFont.systemFont(ofSize: size, weight: item.bold ? .bold : .regular)
+        guard !item.fontName.isEmpty else { return fallback }
+        let traits: NSFontTraitMask = item.bold ? .boldFontMask : []
+        return NSFontManager.shared.font(withFamily: item.fontName, traits: traits, weight: 5, size: size) ?? fallback
+    }
+}
+
 enum TitleMath {
     /// 時刻 t での見え方。出ていない時刻は nil。t が nil なら、動きのない完成形。settled なら出ている時間かどうかだけ見る
     static func state(_ item: TitleItem, at t: Double?, settled: Bool = false) -> TitleState? {
+        guard var s = rawState(item, at: t, settled: settled) else { return nil }
+        s.opacity *= item.opacity
+        return s
+    }
+
+    private static func rawState(_ item: TitleItem, at t: Double?, settled: Bool) -> TitleState? {
         guard let t else { return TitleState() }
         guard t >= item.start else { return nil }
         let timed = item.duration > 0
@@ -185,7 +215,7 @@ struct TitleOverlay: View {
         let height = size.height
         let fs = item.size * height
         return text(item, reveal: s.reveal)
-            .font(.system(size: fs, weight: item.bold ? .bold : .regular))
+            .font(item.fontName.isEmpty ? Font.system(size: fs, weight: item.bold ? .bold : .regular) : Font(TitleFont.resolve(item, size: fs) as CTFont))
             .foregroundStyle(Color(nsColor: item.nsColor))
             .multilineTextAlignment(item.anchor.textAlignment)
             .shadow(color: item.shadow ? .black.opacity(0.65) : .clear, radius: fs * 0.06, x: 0, y: fs * 0.03)
@@ -209,7 +239,7 @@ enum TitleRenderer {
             let para = NSMutableParagraphStyle()
             para.alignment = item.anchor.nsAlignment
             var attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: fs, weight: item.bold ? .bold : .regular),
+                .font: TitleFont.resolve(item, size: fs),
                 .foregroundColor: item.nsColor.withAlphaComponent(st.opacity),
                 .paragraphStyle: para,
             ]

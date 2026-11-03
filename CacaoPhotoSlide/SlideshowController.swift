@@ -43,8 +43,12 @@ struct Slide {
 @Observable @MainActor
 final class SlideshowController {
     let urls: [URL]
-    let settings: SlideshowSettings
+    private(set) var settings: SlideshowSettings          // タイトル・V2・V1 の濃さ・音声は、流している最中も applyLive で変わる
+    private let overlayMaxPixel: Int
     let timing: SlideTiming
+    private(set) var overlayOrder: [OverlayClip]          // V2。手前に重ねる順
+    private(set) var overlayMotions: [UUID: KenBurnsMotion] = [:]   // V2 の Ken Burns の動き（クリップごとに決めておく）
+    private(set) var overlayImages: [String: CGImage] = [:]
     private let loader: ImageLoader
 
     private(set) var current: Slide?
@@ -70,12 +74,17 @@ final class SlideshowController {
         self.urls = urls
         self.settings = settings
         self.timing = SlideTiming(urls: urls, settings: settings)
+        self.overlayOrder = OverlayMath.layout(settings.overlayClips).order
         self.loader = ImageLoader(urls: urls, maxPixel: maxPixel)
         music = MusicTimeline(clips: settings.clips, document: settings.document)
+        self.overlayMaxPixel = maxPixel
+        for c in overlayOrder { overlayMotions[c.id] = KenBurnsMotion.random() }
+        loadOverlayImages()
     }
 
-    func start(at index: Int = 0) {
-        show(min(max(0, index), max(0, count - 1)), direction: 1, manual: false, resync: true)
+    /// offset は、その写真の頭から何秒進んだ位置から始めるか（タイムラインの好きな時刻から再生するため）
+    func start(at index: Int = 0, offset: TimeInterval = 0) {
+        show(min(max(0, index), max(0, count - 1)), direction: 1, manual: false, resync: true, offset: offset)
     }
 
     func stop() {
@@ -123,6 +132,31 @@ final class SlideshowController {
         show(i, direction: -1, manual: true, resync: true)
     }
 
+    /// まだ読んでいない V2 の写真を読む
+    private func loadOverlayImages() {
+        let paths = Set(settings.overlayClips.map(\.path)).filter { overlayImages[$0] == nil }
+        guard !paths.isEmpty else { return }
+        let mp = overlayMaxPixel
+        Task { [weak self] in
+            for p in paths {
+                if let img = await Task.detached(priority: .userInitiated, operation: { ImageLoader.decode(URL(fileURLWithPath: p), maxPixel: mp) }).value {
+                    self?.overlayImages[p] = img
+                }
+            }
+        }
+    }
+
+    /// 流している最中に、タイトル・V2・トラックの設定（非表示・透過率・音量）が変わったとき、その場で反映する
+    func applyLive(clips: [MusicClip], titles: [TitleItem], overlays: [OverlayClip], v1Opacity: Double, document: URL?) {
+        settings.titles = titles
+        settings.overlayClips = overlays
+        settings.v1Opacity = v1Opacity
+        overlayOrder = OverlayMath.layout(overlays).order
+        for c in overlayOrder where overlayMotions[c.id] == nil { overlayMotions[c.id] = KenBurnsMotion.random() }
+        loadOverlayImages()
+        updateClips(clips, document: document)
+    }
+
     /// 流している途中でクリップが変わった
     func updateClips(_ clips: [MusicClip], document: URL?) {
         if let m = music {
@@ -144,7 +178,7 @@ final class SlideshowController {
     func jump(to time: TimeInterval) {
         guard count > 0 else { return }
         let i = timing.index(at: time)
-        show(i, direction: 1, manual: true, resync: true)
+        show(i, direction: 1, manual: true, resync: true, offset: max(0, time - timing.starts[i]))
     }
 
     // MARK: 描画用
@@ -186,7 +220,7 @@ final class SlideshowController {
 
     // MARK: 内部
 
-    private func show(_ index: Int, direction: Int, manual: Bool, resync: Bool) {
+    private func show(_ index: Int, direction: Int, manual: Bool, resync: Bool, offset: TimeInterval = 0) {
         advanceTask?.cancel()
         showTask?.cancel()
         showTask = Task { [weak self] in
@@ -205,9 +239,10 @@ final class SlideshowController {
             let now = Date()
             if pausedAt != nil { pausedAt = now }   // 停止中に送ったら、新しい写真は出だしで止めておく
             previous = current
-            current = Slide(index: index, url: urls[index], image: image, start: now, motion: .random())
+            // 写真の途中から始めるときは、始めた時刻を offset だけ前にずらして、経過時間に含める
+            current = Slide(index: index, url: urls[index], image: image, start: now.addingTimeInterval(-offset), motion: .random())
             // 音楽は、最初・矢印で飛んだとき・最初に戻ったときだけ写真の位置に合わせ直す。自動送りでは触らない（毎回合わせると音が飛ぶ）
-            if resync { music?.set(time: timing.starts[index], playing: pausedAt == nil) }
+            if resync { music?.set(time: timing.starts[index] + min(offset, timing.dwells[index]), playing: pausedAt == nil) }
             let loop = settings.loop
             Task { await self.loader.preload(around: index, loop: loop) }
             scheduleAdvance()

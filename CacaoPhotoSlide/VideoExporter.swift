@@ -108,6 +108,14 @@ enum VideoExporter {
         let timing = SlideTiming(urls: urls, settings: settings)
         let total = Int(timing.total * Double(fps) + 0.5)
         let motions = (0..<n).map { _ in KenBurnsMotion.random() }
+        // V2（重ねる写真）は先に読んでおく
+        let overlayOrder = OverlayMath.layout(settings.overlayClips).order
+        var overlayImages: [String: CGImage] = [:]
+        var overlayMotions: [UUID: KenBurnsMotion] = [:]
+        for clip in overlayOrder { overlayMotions[clip.id] = KenBurnsMotion.random() }
+        for clip in overlayOrder where overlayImages[clip.path] == nil {
+            if let img = ImageLoader.decode(URL(fileURLWithPath: clip.path), maxPixel: Int(Double(max(w, h)) * 1.3)) { overlayImages[clip.path] = img }
+        }
         let maxPixel = Int(Double(max(w, h)) * 1.3)
 
         try? FileManager.default.removeItem(at: output)
@@ -274,6 +282,14 @@ enum VideoExporter {
                                               fade: min(lastTotal, settings.endFade > 0 ? settings.endFade : timing.trs[n - 1]))
                 : 0
 
+            var overlayLayers: [OverlayLayer] = []
+            for clip in overlayOrder {
+                if let st = OverlayMath.state(clip, at: t, transition: settings.transition, fit: settings.fit, motion: overlayMotions[clip.id]),
+                   st.opacity > 0.001, let img = overlayImages[clip.path] {
+                    overlayLayers.append(OverlayLayer(image: img, state: st))
+                }
+            }
+
             while !input.isReadyForMoreMediaData { usleep(2000) }
             guard let pool = adaptor.pixelBufferPool else { throw ExportError.pixelBuffer }
             var pb: CVPixelBuffer?
@@ -283,7 +299,7 @@ enum VideoExporter {
             if let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: w, height: h, bitsPerComponent: 8,
                                    bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: colorSpace, bitmapInfo: bitmapInfo) {
                 FrameRenderer.draw(layers, in: ctx, size: size,
-                                   titles: settings.titles, time: t, blackout: blackout)
+                                   v1Opacity: settings.v1Opacity, overlays: overlayLayers, titles: settings.titles, time: t, blackout: blackout)
             }
             CVPixelBufferUnlockBaseAddress(buffer, [])
             if !adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(f), timescale: CMTimeScale(fps))) {

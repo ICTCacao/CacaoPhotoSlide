@@ -85,6 +85,12 @@ struct ProjectFile: Codable {
     var endFade: Double = 0           // 最後の写真のフェードアウト（秒、0 でなし）
     var titles: [TitleItem] = []      // 画面に重ねる文字
     var overrides: [String: PhotoOverride] = [:]   // 写真ごとの表示時間・切り替え（写真入りなら photos/ の相対パスがキー）
+    var overlayLibrary: [String] = [] // V2 ライブラリの写真（写真入りなら overlays/ の相対パス）
+    var overlayClips: [OverlayClip] = []   // V2 のクリップ
+    var trackSettings: [String: TrackSettings]?   // トラックごとの設定
+    var titleTracks: Int?             // T のトラックの数（なければ、古い書類なので既定）
+    var overlayTracks: Int?           // V2 以上のトラックの数
+    var audioTracks: Int?             // A のトラックの数
     var view: ViewState?              // 画面の状態（タブ・タイムラインの拡大・プレビューの高さ・再生ヘッド）
     var manualOrder: [String] = []    // 順番が「手動」のときの並び（写真入りなら photos/ の相対パス）
 
@@ -111,6 +117,12 @@ struct ProjectFile: Codable {
         endFade = try c.decodeIfPresent(Double.self, forKey: .endFade) ?? 0
         titles = try c.decodeIfPresent([TitleItem].self, forKey: .titles) ?? []
         overrides = try c.decodeIfPresent([String: PhotoOverride].self, forKey: .overrides) ?? [:]
+        overlayLibrary = try c.decodeIfPresent([String].self, forKey: .overlayLibrary) ?? []
+        overlayClips = try c.decodeIfPresent([OverlayClip].self, forKey: .overlayClips) ?? []
+        trackSettings = try c.decodeIfPresent([String: TrackSettings].self, forKey: .trackSettings)
+        titleTracks = try c.decodeIfPresent(Int.self, forKey: .titleTracks)
+        overlayTracks = try c.decodeIfPresent(Int.self, forKey: .overlayTracks)
+        audioTracks = try c.decodeIfPresent(Int.self, forKey: .audioTracks)
         view = try c.decodeIfPresent(ViewState.self, forKey: .view)
         manualOrder = try c.decodeIfPresent([String].self, forKey: .manualOrder) ?? []
     }
@@ -168,6 +180,34 @@ enum ProjectDocument {
         } else {
             file.includesPhotos = false
             try? fm.removeItem(at: url.appendingPathComponent("photos"))
+        }
+        // V2 の写真: 写真も書類に入れるときは overlays/ にコピーして相対パスにする
+        if photos != nil {
+            let overlayDir = url.appendingPathComponent("overlays")
+            try fm.createDirectory(at: overlayDir, withIntermediateDirectories: true)
+            var omap: [String: String] = [:]
+            var keep = Set<String>()
+            for (i, path) in file.overlayLibrary.enumerated() {
+                let src = path.hasPrefix("/") ? URL(fileURLWithPath: path) : url.appendingPathComponent(path)
+                let name: String
+                if src.standardizedFileURL.deletingLastPathComponent() == overlayDir.standardizedFileURL {
+                    name = src.lastPathComponent
+                } else {
+                    name = String(format: "%04d_%@", i + 1, src.lastPathComponent)
+                    let dest = overlayDir.appendingPathComponent(name)
+                    if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+                    try fm.copyItem(at: src, to: dest)
+                }
+                omap[path] = "overlays/\(name)"
+                keep.insert(name)
+            }
+            for item in (try? fm.contentsOfDirectory(atPath: overlayDir.path)) ?? [] where !keep.contains(item) {
+                try? fm.removeItem(at: overlayDir.appendingPathComponent(item))
+            }
+            file.overlayLibrary = file.overlayLibrary.compactMap { omap[$0] }
+            for i in file.overlayClips.indices {
+                if let m = omap[file.overlayClips[i].path] { file.overlayClips[i].path = m }
+            }
         }
         var used: Set<String> = []
         for i in file.clips.indices {

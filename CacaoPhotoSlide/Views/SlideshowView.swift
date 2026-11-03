@@ -11,12 +11,18 @@ struct SlideshowView: View {
                 let date = ctx.date
                 ZStack {
                     Color.black
-                    if let cur = controller.current {
-                        let t = TransitionMath.easeInOut(controller.transitionProgress(at: date))
-                        if t < 1, let prev = controller.previous {
-                            layer(prev, size: size, date: date, fx: outgoing(t, width: size.width))
+                    ZStack {
+                        if let cur = controller.current {
+                            let t = TransitionMath.easeInOut(controller.transitionProgress(at: date))
+                            if t < 1, let prev = controller.previous {
+                                layer(prev, size: size, date: date, fx: outgoing(t, width: size.width))
+                            }
+                            layer(cur, size: size, date: date, fx: incoming(t, width: size.width))
                         }
-                        layer(cur, size: size, date: date, fx: incoming(t, width: size.width))
+                    }
+                    .opacity(controller.settings.v1Opacity)
+                    if !controller.overlayOrder.isEmpty {
+                        overlays(size: size, time: controller.timelineTime(at: date))
                     }
                     if !controller.settings.titles.isEmpty {
                         TitleOverlay(items: controller.settings.titles, time: controller.timelineTime(at: date))
@@ -30,6 +36,28 @@ struct SlideshowView: View {
             }
         }
         .ignoresSafeArea()
+    }
+
+    // MARK: V2（重ねる写真）
+
+    private func overlays(size: CGSize, time: Double) -> some View {
+        ZStack {
+            ForEach(controller.overlayOrder) { clip in
+                if let st = OverlayMath.state(clip, at: time, transition: controller.settings.transition, fit: controller.settings.fit,
+                                              motion: controller.overlayMotions[clip.id]),
+                   st.opacity > 0.001, let cg = controller.overlayImages[clip.path] {
+                    Image(decorative: cg, scale: 1)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: st.fill ? .fill : .fit)
+                        .frame(width: size.width, height: size.height)
+                        .scaleEffect(st.scale)
+                        .offset(x: st.dx * size.width, y: st.dy * size.height)
+                        .opacity(st.opacity)
+                }
+            }
+        }
+        .frame(width: size.width, height: size.height)
     }
 
     // MARK: 1 枚ぶんの描画

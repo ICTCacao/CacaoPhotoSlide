@@ -2,6 +2,18 @@ import SwiftUI
 import AppKit
 import AVFoundation
 
+/// 「写真」のタブで見るライブラリ
+enum LibraryMode: String, CaseIterable, Identifiable {
+    case v1, v2
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .v1: return "V1 トラック"
+        case .v2: return "V2 トラック"
+        }
+    }
+}
+
 /// 窓の上のタブ
 enum MainTab: String, CaseIterable, Identifiable {
     case photos, preview, settings
@@ -39,7 +51,7 @@ final class AppModel {
 
     /// 音声のタイムライン。変わったら、流している最中ならその場で反映する
     var clips: [MusicClip] = [] {
-        didSet { activeController?.updateClips(clips, document: documentURL) }
+        didSet { activeController?.updateClips(effectiveClips, document: documentURL) }
     }
     var selectedClip: UUID?
 
@@ -60,15 +72,38 @@ final class AppModel {
     var transition: Transition { didSet { ud.set(transition.rawValue, forKey: Prefs.transition) } }
     var endFade: Double { didSet { ud.set(endFade, forKey: Prefs.endFade) } }
     var titles: [TitleItem] = [] {
-        didSet { ud.set(try? JSONEncoder().encode(titles), forKey: Prefs.titles) }
+        didSet { ud.set(try? JSONEncoder().encode(titles), forKey: Prefs.titles); syncLive() }
     }
     var showTitles = false
+    /// トラックごとの設定（透過率・非表示・音量・ミュート）。鍵は TrackRef.key
+    var trackSettings: [String: TrackSettings] = [:] {
+        didSet { ud.set(try? JSONEncoder().encode(trackSettings), forKey: Prefs.trackSettings); syncLive() }
+    }
+    var editingTrack: TrackRef?
+    /// トラックの数（右クリックで足す・消す）。中身が使っている数より少なくはならない
+    var titleTracks = 1 { didSet { ud.set(titleTracks, forKey: "titleTracks") } }
+    var overlayTracks = 0 { didSet { ud.set(overlayTracks, forKey: "overlayTracks") } }
+    var audioTracks = 1 { didSet { ud.set(audioTracks, forKey: "audioTracks") } }
     /// 写真ごとの表示時間・切り替え（写真のパスがキー。全体の設定を変えても、ここは変わらない）
     var overrides: [String: PhotoOverride] = [:] {
         didSet { ud.set(try? JSONEncoder().encode(overrides), forKey: Prefs.overrides) }
     }
     var showOverrides = false
     var showColorCard = false
+    var libraryMode: LibraryMode = .v1
+    /// V2（重ねる写真）のライブラリ。写真のパス。V1 の写真とは別に持つ
+    var overlayLibrary: [String] = [] {
+        didSet { ud.set(try? JSONEncoder().encode(overlayLibrary), forKey: "overlayLibrary") }
+    }
+    /// V2 のクリップ（タイムラインに置いたもの）
+    var overlayClips: [OverlayClip] = [] {
+        didSet { ud.set(try? JSONEncoder().encode(overlayClips), forKey: "overlayClips"); syncLive() }
+    }
+    var overlaySelection: Set<String> = []     // V2 ライブラリで選んでいる写真
+    var selectedOverlays: Set<UUID> = []       // タイムラインで選んでいる V2 クリップ
+    var overlayAnchor: UUID?                   // ⇧クリックの起点
+    var editingOverlay: UUID?                  // 設定の画面を開いている V2 クリップ
+    var viewerImagePath: String?               // 拡大して見ている V2 の写真
     var selectedTitleIDs: Set<UUID> = []   // タイトルの編集画面で選んでいるタイトル（プレビューに出す）
     var transitionDuration: Double { didSet { ud.set(transitionDuration, forKey: Prefs.transitionDuration) } }
     var order: PhotoOrder {
@@ -110,8 +145,14 @@ final class AppModel {
         transition = Transition(rawValue: ud.string(forKey: Prefs.transition) ?? "") ?? .kenBurns
         transitionDuration = ud.object(forKey: Prefs.transitionDuration) as? Double ?? 1.5
         endFade = ud.object(forKey: Prefs.endFade) as? Double ?? 0
+        titleTracks = ud.object(forKey: "titleTracks") as? Int ?? 1
+        overlayTracks = ud.object(forKey: "overlayTracks") as? Int ?? 0
+        audioTracks = ud.object(forKey: "audioTracks") as? Int ?? 1
         previewHeight = ud.object(forKey: "previewHeight") as? Double ?? 300
         if let d = ud.data(forKey: Prefs.overrides), let o = try? JSONDecoder().decode([String: PhotoOverride].self, from: d) { overrides = o }
+        if let d = ud.data(forKey: "overlayLibrary"), let v = try? JSONDecoder().decode([String].self, from: d) { overlayLibrary = v }
+        if let d = ud.data(forKey: "overlayClips"), let v = try? JSONDecoder().decode([OverlayClip].self, from: d) { overlayClips = v }
+        if let d = ud.data(forKey: Prefs.trackSettings), let v = try? JSONDecoder().decode([String: TrackSettings].self, from: d) { trackSettings = v }
         if let d = ud.data(forKey: Prefs.titles), let t = try? JSONDecoder().decode([TitleItem].self, from: d) { titles = t }
         order = PhotoOrder(rawValue: ud.string(forKey: Prefs.order) ?? "") ?? .name
         manualOrder = ud.stringArray(forKey: Prefs.manualOrder) ?? []
@@ -121,6 +162,7 @@ final class AppModel {
         exportSize = ExportSize(rawValue: ud.string(forKey: Prefs.exportSize) ?? "") ?? .hd1080
         exportFps = ud.object(forKey: Prefs.exportFps) as? Int ?? 30
         displayMode = DisplayMode(rawValue: ud.string(forKey: Prefs.displayMode) ?? "") ?? .fullScreen
+        // 起動したあとで resolveTrackOverlaps() を呼ぶ（init の中では self の準備が終わっていないため onAppear で）
     }
 
     // MARK: 受け取り
@@ -192,7 +234,10 @@ final class AppModel {
     /// サムネイルが画面に出たら読む（読み終わったものは持っておく）
     func requestThumbnail(_ i: Int) {
         guard photos.indices.contains(i) else { return }
-        let url = photos[i]
+        requestThumbnail(url: photos[i])
+    }
+
+    func requestThumbnail(url: URL) {
         guard thumbnails[url] == nil, thumbTasks[url] == nil else { return }
         thumbTasks[url] = Task { [weak self] in
             let img = await Task.detached(priority: .utility) { ImageLoader.decode(url, maxPixel: 128) }.value
@@ -356,11 +401,13 @@ final class AppModel {
             transitionDuration: transitionDuration,
             loop: loop,
             fit: fit,
-            clips: clips,
+            clips: effectiveClips,
             document: documentURL,
             endFade: endFade,
-            titles: titles,
-            overrides: overrides)
+            titles: effectiveTitles,
+            overrides: overrides,
+            overlayClips: effectiveOverlays,
+            v1Opacity: v1Opacity)
     }
 
     // MARK: 所要時間・タイムライン
@@ -401,7 +448,8 @@ final class AppModel {
         let t = min(max(0, time), timing.total)
         playhead = t
         if let c = activeController {
-            if let cur = c.current, c.timing.index(at: t) == cur.index { return }
+            // 同じ写真の中でも、時刻が離れていれば、その時刻へ飛ぶ（ドラッグ中の細かい動きは無視）
+            if let cur = c.current, c.timing.index(at: t) == cur.index, abs(t - c.timelineTime(at: Date())) < 0.25 { return }
             c.jump(to: t)
         }
     }
@@ -433,12 +481,302 @@ final class AppModel {
     }
 
     /// 再生ヘッドの位置にタイトルを足す
-    func addTitle(at time: TimeInterval) {
+    func addTitle(at time: TimeInterval, track: Int? = nil) {
         var item = TitleItem()
         item.start = (time * 10).rounded() / 10
         if !titles.isEmpty { item.anchor = .top; item.size = 0.05 }
+        item.track = track.map { min(max(0, $0), titleTrackCount - 1) } ?? freeTitleTrack(start: item.start, end: item.start + item.duration)
         titles.append(item)
         selectedTitleIDs = [item.id]
+    }
+
+    // MARK: トラックの設定
+
+    /// 流している最中（プレビュー・全画面）に、タイトル・V2・トラックの設定の変更をその場で反映する
+    private func syncLive() {
+        activeController?.applyLive(clips: effectiveClips, titles: effectiveTitles, overlays: effectiveOverlays,
+                                    v1Opacity: v1Opacity, document: documentURL)
+    }
+
+    func trackSetting(_ ref: TrackRef) -> TrackSettings { trackSettings[ref.key] ?? TrackSettings() }
+
+    func updateTrackSetting(_ ref: TrackRef, _ change: (inout TrackSettings) -> Void) {
+        var s = trackSetting(ref)
+        change(&s)
+        s.opacity = min(1, max(0, s.opacity))
+        s.volume = min(1, max(0, s.volume))
+        if s.isDefault { trackSettings[ref.key] = nil } else { trackSettings[ref.key] = s }
+    }
+
+    /// V1 全体の濃さ（非表示なら 0）
+    var v1Opacity: Double { let s = trackSetting(TrackRef(kind: nil)); return s.hidden ? 0 : s.opacity }
+
+    /// 再生・書き出しに使う、トラックの設定を反映したもの
+    var effectiveClips: [MusicClip] {
+        clips.compactMap { c in
+            let s = trackSetting(TrackRef(kind: .audio, index: c.track))
+            if s.muted { return nil }
+            var c = c
+            c.volume *= s.volume
+            return c
+        }
+    }
+
+    var effectiveTitles: [TitleItem] {
+        titles.compactMap { t in
+            let s = trackSetting(TrackRef(kind: .title, index: t.track))
+            if s.hidden { return nil }
+            var t = t
+            t.opacity *= s.opacity
+            return t
+        }
+    }
+
+    var effectiveOverlays: [OverlayClip] {
+        overlayClips.compactMap { c in
+            let s = trackSetting(TrackRef(kind: .overlay, index: c.track))
+            if s.hidden { return nil }
+            var c = c
+            c.opacity *= s.opacity
+            return c
+        }
+    }
+
+    /// トラックを消したとき、上のトラックの設定を 1 つ下げる
+    private func shiftTrackSettings(_ kind: TrackKind, removed index: Int, count: Int) {
+        var out = trackSettings
+        for i in index..<max(index, count) {
+            let from = TrackRef(kind: kind, index: i + 1).key, to = TrackRef(kind: kind, index: i).key
+            out[to] = out[from]
+            out[from] = nil
+        }
+        if trackSettings != out { trackSettings = out }
+    }
+
+    // MARK: トラック（T・V2 以上・A）
+
+    enum TrackKind: Hashable { case title, overlay, audio }
+
+    /// それぞれのトラックの数（中身が使っている数より少なくはならない）
+    var titleTrackCount: Int { max(0, titleTracks, (titles.map(\.track).max() ?? -1) + 1) }
+    var overlayTrackCount: Int { max(0, overlayTracks, (overlayClips.map(\.track).max() ?? -1) + 1) }
+    var trackCount: Int { max(0, audioTracks, (clips.map(\.track).max() ?? -1) + 1) }     // 音声のトラック
+
+    func addTrack(_ kind: TrackKind) {
+        switch kind {
+        case .title: titleTracks = titleTrackCount + 1
+        case .overlay: overlayTracks = overlayTrackCount + 1
+        case .audio: audioTracks = trackCount + 1
+        }
+    }
+
+    func isTrackEmpty(_ kind: TrackKind, _ index: Int) -> Bool {
+        switch kind {
+        case .title: return !titles.contains { $0.track == index }
+        case .overlay: return !overlayClips.contains { $0.track == index }
+        case .audio: return !clips.contains { $0.track == index }
+        }
+    }
+
+    /// 空のトラックを消す（上のトラックは 1 つ下がる）。V1（写真）だけは消せない
+    func removeTrack(_ kind: TrackKind, _ index: Int) {
+        guard isTrackEmpty(kind, index) else { return }
+        switch kind {
+        case .title:
+            let n = titleTrackCount
+            guard n > 0 else { return }
+            for i in titles.indices where titles[i].track > index { titles[i].track -= 1 }
+            shiftTrackSettings(.title, removed: index, count: n - 1)
+            titleTracks = n - 1
+        case .overlay:
+            let n = overlayTrackCount
+            guard n > 0 else { return }
+            for i in overlayClips.indices where overlayClips[i].track > index { overlayClips[i].track -= 1 }
+            shiftTrackSettings(.overlay, removed: index, count: n - 1)
+            overlayTracks = n - 1
+        case .audio:
+            let n = trackCount
+            guard n > 0 else { return }
+            for i in clips.indices where clips[i].track > index { clips[i].track -= 1 }
+            shiftTrackSettings(.audio, removed: index, count: n - 1)
+            audioTracks = n - 1
+        }
+    }
+
+    /// 時間の重なる項目を、別のトラックへ振り分ける（古い書類や、重ねて置いたとき）
+    func resolveTrackOverlaps() {
+        func resolve<T>(_ items: inout [T], track: WritableKeyPath<T, Int>, span: (T) -> (Double, Double)) {
+            var placed: [(track: Int, s: Double, e: Double)] = []
+            for idx in items.indices.sorted(by: { span(items[$0]).0 < span(items[$1]).0 }) {
+                let (s, e) = span(items[idx])
+                var t = max(0, items[idx][keyPath: track])
+                while placed.contains(where: { $0.track == t && $0.s < e && s < $0.e }) { t += 1 }
+                items[idx][keyPath: track] = t
+                placed.append((t, s, e))
+            }
+        }
+        var ts = titles
+        resolve(&ts, track: \.track) { ($0.start, $0.duration > 0 ? $0.start + $0.duration : 1e9) }
+        if ts != titles { titles = ts }
+        var os = overlayClips
+        resolve(&os, track: \.track) { ($0.start, $0.end) }
+        if os != overlayClips { overlayClips = os }
+    }
+
+    private func freeTitleTrack(start: Double, end: Double) -> Int {
+        let e = end > start ? end : 1e9
+        for t in 0..<titleTrackCount {
+            let busy = titles.contains { $0.track == t && $0.start < e && start < ($0.duration > 0 ? $0.start + $0.duration : 1e9) }
+            if !busy { return t }
+        }
+        return titleTrackCount
+    }
+
+    private func freeOverlayTrack(start: Double, end: Double) -> Int {
+        for t in 0..<overlayTrackCount {
+            if !overlayClips.contains(where: { $0.track == t && $0.start < end && start < $0.end }) { return t }
+        }
+        return overlayTrackCount
+    }
+
+    // MARK: V2（重ねる写真）
+
+    /// V2 ライブラリに写真を足す（フォルダも可）。足した写真のパスを返す
+    @discardableResult
+    func addOverlayPhotos(_ urls: [URL]) -> [String] {
+        let found = PhotoLibrary.collect(from: urls, recursive: true, order: .name)
+        var added: [String] = []
+        for u in found where !overlayLibrary.contains(u.path) {
+            overlayLibrary.append(u.path)
+            added.append(u.path)
+        }
+        return added
+    }
+
+    func openOverlayPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.folder, .image]
+        panel.message = "V2（重ねる写真）のライブラリに入れる写真（またはフォルダ）を選んでください"
+        panel.prompt = "追加"
+        if panel.runModal() == .OK { addOverlayPhotos(panel.urls) }
+    }
+
+    func removeOverlayLibrary(_ paths: Set<String>) {
+        overlayLibrary.removeAll { paths.contains($0) }
+        let gone = Set(overlayClips.filter { paths.contains($0.path) }.map(\.id))
+        overlayClips.removeAll { paths.contains($0.path) }
+        overlaySelection.subtract(paths)
+        selectedOverlays.subtract(gone)
+        if let e = editingOverlay, gone.contains(e) { editingOverlay = nil }
+    }
+
+    /// ライブラリの写真をタイムラインの V2 に置く（複数なら、続けて並べる）。表示時間は全体の設定と同じ
+    func placeOverlays(_ paths: [String], at time: TimeInterval, track: Int? = nil) {
+        var t = max(0, time)
+        var ids: Set<UUID> = []
+        for p in paths where overlayLibrary.contains(p) {
+            var clip = OverlayClip(path: p, start: t, duration: dwell)
+            clip.track = track ?? freeOverlayTrack(start: clip.start, end: clip.end)   // 指定がなければ、空いている V のトラックへ（なければ足す）
+            overlayClips.append(clip)
+            ids.insert(clip.id)
+            t += clip.duration
+        }
+        if !ids.isEmpty { selectedOverlays = ids }
+    }
+
+    /// ファイルをタイムラインの V2 に直接落としたとき: ライブラリにも入れて、その位置に置く
+    func importAndPlaceOverlays(_ urls: [URL], at time: TimeInterval) {
+        let found = PhotoLibrary.collect(from: urls, recursive: true, order: .name)
+        for u in found where !overlayLibrary.contains(u.path) { overlayLibrary.append(u.path) }
+        placeOverlays(found.map(\.path), at: time)
+    }
+
+    func updateOverlay(_ id: UUID, _ change: (inout OverlayClip) -> Void) {
+        guard let i = overlayClips.firstIndex(where: { $0.id == id }) else { return }
+        var c = overlayClips[i]
+        change(&c)
+        c.start = max(0, c.start)
+        c.duration = max(0.3, c.duration)
+        c.opacity = min(1, max(0, c.opacity))
+        c.scale = min(4, max(0.05, c.scale))
+        overlayClips[i] = c
+    }
+
+    func removeOverlayClip(_ id: UUID) {
+        overlayClips.removeAll { $0.id == id }
+        selectedOverlays.remove(id)
+        if editingOverlay == id { editingOverlay = nil }
+    }
+
+    /// クリック: その 1 件。⌘: 追加／解除。⇧: 起点から押したものまで（開始時刻の順）を追加
+    func selectOverlay(_ id: UUID, modifiers: NSEvent.ModifierFlags) {
+        let order = overlayClips.sorted { $0.start < $1.start }.map(\.id)
+        if modifiers.contains(.command) {
+            if selectedOverlays.contains(id) { selectedOverlays.remove(id) } else { selectedOverlays.insert(id) }
+            overlayAnchor = id
+        } else if modifiers.contains(.shift), let a = overlayAnchor, let i = order.firstIndex(of: a), let j = order.firstIndex(of: id) {
+            selectedOverlays.formUnion(order[min(i, j)...max(i, j)])
+        } else {
+            selectedOverlays = [id]
+            overlayAnchor = id
+        }
+    }
+
+    /// 選んだ V2 クリップをまとめて動かす（origins は動かし始める前の開始時刻とトラック）
+    func moveOverlays(_ origins: [UUID: (start: TimeInterval, track: Int)], delta: TimeInterval, deltaTrack: Int, maxTrack: Int) {
+        var out = overlayClips
+        for i in out.indices {
+            guard let o = origins[out[i].id] else { continue }
+            out[i].start = max(0, o.start + delta)
+            out[i].track = min(max(0, o.track + deltaTrack), max(0, maxTrack))
+        }
+        if out != overlayClips { overlayClips = out }
+    }
+
+    /// 選んだ V2 クリップを、開始時刻の順に、前のクリップの終わりに続けて並べる（先頭は動かさない）
+    func packSelectedOverlays() {
+        var out = overlayClips
+        let idx = out.indices.filter { selectedOverlays.contains(out[$0].id) }.sorted { out[$0].start < out[$1].start }
+        guard idx.count >= 2 else { return }
+        var t = out[idx[0]].end
+        for i in idx.dropFirst() {
+            out[i].start = t
+            t = out[i].end
+        }
+        overlayClips = out
+    }
+
+    func removeSelectedOverlays() {
+        let ids = selectedOverlays
+        overlayClips.removeAll { ids.contains($0.id) }
+        selectedOverlays = []
+        if let e = editingOverlay, ids.contains(e) { editingOverlay = nil }
+    }
+
+    func duplicateSelectedOverlays() {
+        var added: Set<UUID> = []
+        for c in overlayClips.filter({ selectedOverlays.contains($0.id) }).sorted(by: { $0.start < $1.start }) {
+            var copy = c
+            copy.id = UUID()
+            copy.start = c.end
+            copy.track = freeOverlayTrack(start: copy.start, end: copy.end)
+            overlayClips.append(copy)
+            added.insert(copy.id)
+        }
+        if !added.isEmpty { selectedOverlays = added }
+    }
+
+    func duplicateOverlayClip(_ id: UUID) {
+        guard let c = overlayClips.first(where: { $0.id == id }) else { return }
+        var copy = c
+        copy.id = UUID()
+        copy.start = c.end
+        copy.track = freeOverlayTrack(start: copy.start, end: copy.end)
+        overlayClips.append(copy)
+        selectedOverlays = [copy.id]
     }
 
     // MARK: 単色画像
@@ -521,10 +859,6 @@ final class AppModel {
         }
     }
 
-    /// 段の数（使っている段 + 落とすための空の段 1 つ。最低 2 段）。ドラッグ中は固定して、段が次々に生えないようにする
-    var trackCount: Int { frozenTrackCount ?? max(2, (clips.map(\.track).max() ?? -1) + 2) }
-    var frozenTrackCount: Int?
-
     /// 同じ段で時間が重なっているクリップを、別の段に振り分ける（古い書類や、重ねて置いたとき）
     func resolveOverlaps() {
         var placed: [MusicClip] = []
@@ -540,18 +874,10 @@ final class AppModel {
         for i in clips.indices { clips[i].track = byID[clips[i].id] ?? clips[i].track }
     }
 
-    /// クリップを別の段へ（lane が使っている段の数と同じなら新しい段）。空いた段は詰める
+    /// クリップを別のトラックへ
     func setTrack(_ id: UUID, _ lane: Int) {
         guard let i = clips.firstIndex(where: { $0.id == id }) else { return }
-        clips[i].track = max(0, lane)
-        compactTracks()
-    }
-
-    /// 使っていない段を詰める
-    func compactTracks() {
-        let used = Set(clips.map(\.track)).sorted()
-        let map = Dictionary(uniqueKeysWithValues: used.enumerated().map { ($0.element, $0.offset) })
-        for i in clips.indices { clips[i].track = map[clips[i].track] ?? 0 }
+        clips[i].track = min(max(0, lane), trackCount - 1)
     }
 
     /// クリップを動かす（写真の区切りに吸着できる）。track を渡すと段も変える
@@ -620,7 +946,6 @@ final class AppModel {
         if auditionID == id { stopAudition() }
         clips.removeAll { $0.id == id }
         if selectedClip == id { selectedClip = nil }
-        compactTracks()
     }
 
     /// 波形をまだ読んでいなければ読む
@@ -670,6 +995,12 @@ final class AppModel {
         f.endFade = endFade
         f.titles = titles
         f.overrides = overrides.filter { !$0.value.isEmpty }
+        f.overlayLibrary = overlayLibrary
+        f.titleTracks = titleTrackCount
+        f.trackSettings = trackSettings
+        f.overlayTracks = overlayTrackCount
+        f.audioTracks = trackCount
+        f.overlayClips = overlayClips
         f.view = ViewState(tab: tab.rawValue, timelineZoom: timelineZoom, previewHeight: previewHeight, playhead: playhead)
         f.order = order.rawValue
         f.loop = loop
@@ -689,6 +1020,12 @@ final class AppModel {
         removedPaths = []
         titles = []
         overrides = [:]
+        overlayLibrary = []
+        overlayClips = []
+        overlaySelection = []
+        selectedOverlays = []
+        titleTracks = 1; overlayTracks = 0; audioTracks = 1
+        trackSettings = [:]
         clips = []
         selectedClip = nil
         sources = []
@@ -716,6 +1053,17 @@ final class AppModel {
                 previewHeight = min(900, max(120, v.previewHeight))
                 playhead = max(0, v.playhead)
             }
+            overlayLibrary = f.overlayLibrary.map { $0.hasPrefix("/") ? $0 : url.appendingPathComponent($0).path }
+            overlayClips = f.overlayClips.map { c in
+                var c = c
+                if !c.path.hasPrefix("/") { c.path = url.appendingPathComponent(c.path).path }
+                return c
+            }
+            overlaySelection = []
+            selectedOverlays = []
+            trackSettings = f.trackSettings ?? [:]
+            titleTracks = f.titleTracks ?? 1; overlayTracks = f.overlayTracks ?? 0; audioTracks = f.audioTracks ?? 1
+            resolveTrackOverlaps()
             overrides = Dictionary(f.overrides.map { ($0.key.hasPrefix("/") ? $0.key : url.appendingPathComponent($0.key).path, $0.value) },
                                    uniquingKeysWith: { a, _ in a })
             loop = f.loop
@@ -824,6 +1172,13 @@ final class AppModel {
                 // 保存後は書類の中の相対パスで持つ
                 if let saved = try? ProjectDocument.load(from: url) {
                     if includePhotos {
+                        overlayLibrary = saved.overlayLibrary.map { $0.hasPrefix("/") ? $0 : url.appendingPathComponent($0).path }
+                        overlayClips = saved.overlayClips.map { c in
+                            var c = c
+                            if !c.path.hasPrefix("/") { c.path = url.appendingPathComponent(c.path).path }
+                            return c
+                        }
+                        overlaySelection = []
                         overrides = Dictionary(saved.overrides.map { ($0.key.hasPrefix("/") ? $0.key : url.appendingPathComponent($0.key).path, $0.value) },
                                                uniquingKeysWith: { a, _ in a })
                     }
@@ -910,7 +1265,7 @@ final class AppModel {
             if isPreviewing, let c = activeController {
                 c.togglePause()
             } else if !isScanning {
-                startPreview(at: timing.index(at: playhead))
+                startPreview(atTime: playhead)
             }
             return nil
         }
@@ -928,11 +1283,19 @@ final class AppModel {
     }
 
     /// プレビューのタブの中で流す（音声も鳴る）。全画面と同じ描画
-    /// k はタイムライン上の何枚目（流す写真の中の番号）から始めるか。nil なら最初（選んでいれば選んだ写真）から
-    func startPreview(at k: Int? = nil) {
+    /// time はタイムライン上の時刻。その時刻から再生する（写真の途中でも、V2・タイトル・音声の途中でも）。nil なら最初から
+    func startPreview(atTime time: TimeInterval? = nil) {
         guard !photos.isEmpty, window == nil, !isPreviewing else { return }
         var preferred: Int?
-        if let k, playURLs.indices.contains(k) { preferred = photos.firstIndex(of: playURLs[k]) }
+        var offset: TimeInterval = 0
+        if let time {
+            let tm = timing
+            let k = tm.index(at: time)
+            if playURLs.indices.contains(k) {
+                preferred = photos.firstIndex(of: playURLs[k])
+                offset = max(0, min(time - tm.starts[k], tm.dwells[k]))
+            }
+        }
         let (list, first) = makePlaylist(startingAt: preferred)
         guard !list.isEmpty else { return }
         stopAudition()
@@ -940,7 +1303,7 @@ final class AppModel {
         controller.onFinish = { [weak self] in self?.stopSlideshow(); self?.playhead = 0 }   // 最後まで流したら頭へ
         activeController = controller
         isPreviewing = true
-        controller.start(at: first)
+        controller.start(at: first, offset: offset)
     }
 
     private func slideshowEnded() {

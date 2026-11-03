@@ -19,8 +19,20 @@ struct ContentView: View {
             Group {
                 switch model.tab {
                 case .photos:
-                    dropZone
-                        .padding(18)
+                    VStack(spacing: 10) {
+                        Picker("", selection: Bindable(model).libraryMode) {
+                            ForEach(LibraryMode.allCases) { Text($0.label).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(width: 420)
+                        if model.libraryMode == .v1 {
+                            dropZone
+                        } else {
+                            OverlayLibraryView().environment(model)
+                        }
+                    }
+                    .padding(18)
                 case .preview:
                     ScrollView(.vertical) { previewTab.padding(18) }
                 case .settings:
@@ -33,7 +45,7 @@ struct ContentView: View {
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
         }
-        .onAppear { model.installSpaceKey() }
+        .onAppear { model.installSpaceKey(); model.resolveTrackOverlaps() }
         .onChange(of: model.tab) { old, new in
             // プレビューのタブを離れたら、そこで流していたものは止める
             if old == .preview, new != .preview, model.isPreviewing { model.stopSlideshow() }
@@ -46,6 +58,21 @@ struct ContentView: View {
         }
         .sheet(isPresented: Bindable(model).showOverrides) {
             PhotoOverrideSheet().environment(model)
+        }
+        .sheet(isPresented: Binding(
+            get: { model.editingOverlay != nil },
+            set: { if !$0 { model.editingOverlay = nil } })
+        ) {
+            OverlayClipSheet().environment(model)
+        }
+        .sheet(item: Bindable(model).editingTrack) { ref in
+            TrackSettingsSheet(ref: ref).environment(model)
+        }
+        .sheet(isPresented: Binding(
+            get: { model.viewerImagePath != nil },
+            set: { if !$0 { model.viewerImagePath = nil } })
+        ) {
+            if let path = model.viewerImagePath { ImageViewerSheet(path: path) }
         }
         .sheet(isPresented: Bindable(model).showColorCard) {
             ColorCardSheet().environment(model)
@@ -269,7 +296,7 @@ struct ContentView: View {
                     PreviewStill()
                     if !model.photos.isEmpty && !model.isScanning {
                         Button {
-                            model.startPreview(at: model.timing.index(at: model.playhead))
+                            model.startPreview(atTime: model.playhead)
                         } label: {
                             Image(systemName: "play.circle.fill")
                                 .font(.system(size: 64))
@@ -325,7 +352,7 @@ struct ContentView: View {
                         .frame(width: 80)
                 }
             } else {
-                Button { model.startPreview(at: model.timing.index(at: model.playhead)) } label: {
+                Button { model.startPreview(atTime: model.playhead) } label: {
                     Label("再生", systemImage: "play.fill").frame(width: 80)
                 }
                 .disabled(model.photos.isEmpty || model.isScanning || model.isShowing)
@@ -504,7 +531,12 @@ struct ContentView: View {
             }
         }
         group.notify(queue: .main) {
-            model.load(urls)
+            // V2 のライブラリを見ているときは、落とした写真は V2 のライブラリに入る
+            if model.tab == .photos, model.libraryMode == .v2 {
+                model.addOverlayPhotos(urls.filter { !MusicClip.isAudio($0) && !ProjectDocument.isDocument($0) })
+            } else {
+                model.load(urls)
+            }
         }
         return true
     }
@@ -514,6 +546,7 @@ struct ContentView: View {
 private struct PreviewStill: View {
     @Environment(AppModel.self) private var model
     @State private var image: CGImage?
+    @State private var overlayImages: [String: CGImage] = [:]
 
     private var url: URL? {
         let urls = model.playURLs
@@ -533,11 +566,37 @@ private struct PreviewStill: View {
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .aspectRatio(contentMode: fit == .fill ? .fill : .fit)
+                    .opacity(model.v1Opacity)
+            }
+            // 再生ヘッドの時刻に出ている V2（重ねる写真）
+            GeometryReader { geo in
+                ZStack {
+                    ForEach(OverlayMath.layout(model.effectiveOverlays).order) { clip in
+                        if let st = OverlayMath.state(clip, at: model.playhead, transition: model.transition, fit: model.fit, motion: nil, settled: true),
+                           let cg = overlayImages[clip.path] {
+                            Image(decorative: cg, scale: 1)
+                                .resizable().aspectRatio(contentMode: st.fill ? .fill : .fit)
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .scaleEffect(st.scale)
+                                .offset(x: st.dx * geo.size.width, y: st.dy * geo.size.height)
+                                .opacity(st.opacity)
+                        }
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
             }
             // 動きは見せず、再生ヘッドの時刻に出ているタイトルだけ
-            TitleOverlay(items: model.titles, time: model.playhead, settled: true)
+            TitleOverlay(items: model.effectiveTitles, time: model.playhead, settled: true)
         }
         .clipped()
+        .task(id: model.overlayClips.map(\.path)) {
+            for path in Set(model.overlayClips.map(\.path)) where overlayImages[path] == nil {
+                let u = URL(fileURLWithPath: path)
+                if let img = await Task.detached(priority: .userInitiated, operation: { ImageLoader.decode(u, maxPixel: 1280) }).value {
+                    overlayImages[path] = img
+                }
+            }
+        }
         .task(id: url) {
             guard let url else { image = nil; return }
             image = await Task.detached(priority: .userInitiated) { ImageLoader.decode(url, maxPixel: 1280) }.value

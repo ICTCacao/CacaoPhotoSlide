@@ -70,6 +70,41 @@ struct SlideshowSettings {
     var endFade: TimeInterval = 0      // 最後の写真を、終わるこの秒数前から黒へフェードアウト（0 なら画面ではなし、mp4 は切り替えの長さ）
     var titles: [TitleItem] = []       // 画面に重ねる文字
     var overrides: [String: PhotoOverride] = [:]   // 写真ごとの表示時間・切り替え・収め方（写真のパスがキー）
+    var overlayClips: [OverlayClip] = []           // V2（重ねる写真）。パスは絶対パスに解決済み
+    var v1Opacity: Double = 1                      // V1（写真）全体の濃さ（トラックの設定。0 なら非表示）
+}
+
+/// トラックごとの設定（トラックの番号が変わっても追従する）
+struct TrackSettings: Codable, Equatable {
+    var opacity: Double = 1        // 透過率の逆。1 で不透明（T・V1・V2 以上）
+    var hidden = false             // 非表示（T・V1・V2 以上）
+    var volume: Double = 1         // 音量の倍率（A）
+    var muted = false              // ミュート（A）
+    var isDefault: Bool { opacity == 1 && !hidden && volume == 1 && !muted }
+}
+
+/// トラックを指す（kind が nil なら V1）
+struct TrackRef: Hashable, Identifiable {
+    var kind: AppModel.TrackKind?
+    var index = 0
+    var id: String { key }
+    /// 設定を覚えておく鍵
+    var key: String {
+        switch kind {
+        case nil: return "V1"
+        case .title?: return "T\(index)"
+        case .overlay?: return "O\(index)"
+        case .audio?: return "A\(index)"
+        }
+    }
+    var name: String {
+        switch kind {
+        case nil: return "V1"
+        case .title?: return "T\(index + 1)"
+        case .overlay?: return "V\(index + 2)"
+        case .audio?: return "A\(index + 1)"
+        }
+    }
 }
 
 /// 写真 1 枚だけの設定。nil の項目は全体の設定に従う
@@ -138,6 +173,7 @@ enum Prefs {
     static let endFade = "endFade"
     static let titles = "titles"
     static let overrides = "overrides"
+    static let trackSettings = "trackSettings"
     static let loop = "loop"
     static let recursive = "recursive"
     static let fit = "fit"

@@ -16,7 +16,7 @@ struct ColorCardSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("単色画像を足す").font(.headline)
+            Text("単色画像を追加").font(.headline)
             ZStack {
                 Rectangle().fill(color)
                 TitleOverlay(items: model.titles, time: nil)

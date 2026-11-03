@@ -53,7 +53,7 @@ struct FrameLayer {
 
 enum FrameRenderer {
     static func draw(_ layers: [FrameLayer], in ctx: CGContext, size: CGSize,
-                     titles: [TitleItem] = [], time: Double = 0, blackout: Double = 0) {
+                     v1Opacity: Double = 1, overlays: [OverlayLayer] = [], titles: [TitleItem] = [], time: Double = 0, blackout: Double = 0) {
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(origin: .zero, size: size))
         ctx.interpolationQuality = .high
@@ -72,6 +72,23 @@ enum FrameRenderer {
             ctx.translateBy(x: o.x * size.width, y: -o.y * size.height)   // CG は y が上向き
             ctx.scaleBy(x: s, y: s)
             ctx.draw(l.image, in: CGRect(x: -fw / 2, y: -fh / 2, width: fw, height: fh))
+            ctx.restoreGState()
+        }
+        // V1 トラックの透過率（黒に対する濃さ）
+        if v1Opacity < 1 {
+            ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1 - max(0, v1Opacity)))
+            ctx.fill(CGRect(origin: .zero, size: size))
+        }
+        // V2（重ねる写真）: V1 の上、タイトルの下
+        for o in overlays {
+            let iw = CGFloat(o.image.width), ih = CGFloat(o.image.height)
+            let r = o.state.fill ? max(size.width / iw, size.height / ih) : min(size.width / iw, size.height / ih)
+            let fw = iw * r, fh = ih * r
+            ctx.saveGState()
+            ctx.setAlpha(o.state.opacity)
+            ctx.translateBy(x: size.width / 2 + CGFloat(o.state.dx) * size.width, y: size.height / 2 - CGFloat(o.state.dy) * size.height)
+            ctx.scaleBy(x: CGFloat(o.state.scale), y: CGFloat(o.state.scale))
+            ctx.draw(o.image, in: CGRect(x: -fw / 2, y: -fh / 2, width: fw, height: fh))
             ctx.restoreGState()
         }
         TitleRenderer.draw(titles, at: time, in: ctx, size: size)
