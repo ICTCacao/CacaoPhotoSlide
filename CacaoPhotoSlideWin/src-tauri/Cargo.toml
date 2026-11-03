@@ -1,6 +1,6 @@
 [package]
 name = "cacaophotoslidewin"
-version = "2.5.26"
+version = "2.5.27"
 description = "CacaoPhotoSlide Windows 版（写真のスライドショー映像づくりに特化したアプリ）"
 authors = ["ICTCacao"]
 edition = "2021"

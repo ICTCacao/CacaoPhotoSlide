@@ -62,7 +62,8 @@ input[type=range] { accent-color: var(--accent); vertical-align: middle; }
 .drag-ghost { position: fixed; z-index: 3000; pointer-events: none; background: rgba(10,132,255,.85); color: #fff; border-radius: 6px; padding: 4px 10px; font-size: 12px; }
 
 /* タイムライン */
-.tl-pane { display: flex; flex-direction: column; gap: 6px; padding: 8px 18px 8px; height: 100%; overflow: auto; }
+.tl-pane { display: flex; flex-direction: column; gap: 6px; padding: 8px 18px 16px; height: 100%; overflow-y: auto; overflow-x: hidden; }
+.tl-pane > * { flex-shrink: 0; }
 .preview-wrap { display: flex; justify-content: center; align-items: center; background: transparent; flex: none; }
 .preview-box { position: relative; background: #000; border-radius: 8px; overflow: hidden; height: 100%; aspect-ratio: 16/9; }
 .preview-box canvas { width: 100%; height: 100%; display: block; }

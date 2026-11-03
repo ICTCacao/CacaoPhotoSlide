@@ -44,8 +44,10 @@ let timeEl: HTMLElement | null = null;
 let lastGeo: Geo | null = null;
 let contentEl: HTMLElement | null = null;
 let scrollEl: HTMLElement | null = null;
+let lastScrollLeft = 0, lastZoom = 1, lastEditorClip: string | null = null;     // 描き直しても、スクロールの位置と、見ていた所を保つ
 
 export function renderTimeline(pane: HTMLElement) {
+  const prevTop = (pane.querySelector(".tl-pane") as HTMLElement | null)?.scrollTop ?? 0;
   pane.replaceChildren();
   const root = h("div", { class: "tl-pane" });
   pane.append(root);
@@ -143,14 +145,23 @@ export function renderTimeline(pane: HTMLElement) {
     store.emit();
   }, { passive: false });
 
-  // 拡大しているとき、再生ヘッドが見える位置へ
-  if (store.timelineZoom > 1.01) {
+  // 描き直しても、横のスクロールの位置を保つ。拡大の倍率を変えたときだけ、再生ヘッドが見える位置へ
+  scroll.addEventListener("scroll", () => { lastScrollLeft = scroll.scrollLeft; });
+  scroll.scrollLeft = lastScrollLeft;
+  if (store.timelineZoom > 1.01 && Math.abs(store.timelineZoom - lastZoom) > 0.001) {
     const x = xOf(g, player.playing ? player.time : store.playhead);
     if (x < scroll.scrollLeft || x > scroll.scrollLeft + scroll.clientWidth) scroll.scrollLeft = Math.max(0, x - scroll.clientWidth / 2);
+    lastScrollLeft = scroll.scrollLeft;
   }
+  if (store.timelineZoom <= 1.01) { scroll.scrollLeft = 0; lastScrollLeft = 0; }
+  lastZoom = store.timelineZoom;
 
   root.append(h("div", { class: "dim", style: { fontSize: "11px" } }, "クリップをクリックすると、置く位置・曲の範囲・音量・フェードを直せます"));
-  buildClipEditor(root);
+  const editor = buildClipEditor(root);
+  // 縦のスクロールの位置を保つ。音声クリップを選んだときは、編集の欄が見えるところまで送る
+  root.scrollTop = prevTop;
+  if (editor && store.selClip !== lastEditorClip) editor.scrollIntoView({ block: "nearest" });
+  lastEditorClip = editor ? store.selClip : null;
 }
 
 function prevStart() { const tm = store.timing(); const i = tm.index(player.time); return tm.starts[player.time > tm.starts[i] + 0.5 ? i : Math.max(0, i - 1)]; }
@@ -723,11 +734,11 @@ registerDropTarget({
 } as any);
 
 // ───── 選んだ音声クリップの編集 ─────
-function buildClipEditor(root: HTMLElement) {
+function buildClipEditor(root: HTMLElement): HTMLElement | null {
   const clip = store.p.clips.find((c) => c.id === store.selClip);
-  if (!clip) return;
+  if (!clip) return null;
   const box = h("div", { style: { display: "flex", flexDirection: "column", gap: "6px", background: "var(--bg2)", borderRadius: "8px", padding: "8px 12px" } });
-  const line = (...ch: (Node | string)[]) => h("div", { style: { display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" } }, ...ch);
+  const line = (...ch: (Node | string)[]) => h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } }, ...ch.map((c) => (typeof c === "string" ? h("span", {}, c) : c)));   // 文字は 1 つずつ別の要素にする（隣り合う文字がくっつかないように）
   const num = (v: number, f: (n: number) => void, step = 0.1, w = 64) => {
     const i = h("input", { type: "number", class: "num", value: String(round1(v)), step, style: { width: `${w}px` } }) as HTMLInputElement;
     i.addEventListener("change", () => { const n = parseFloat(i.value); if (Number.isFinite(n)) f(n); });
@@ -750,4 +761,5 @@ function buildClipEditor(root: HTMLElement) {
       "フェードイン", num(clip.fadeIn, (n) => store.updateClip(clip.id, (c) => { c.fadeIn = n; }), 0.5, 52),
       "アウト", num(clip.fadeOut, (n) => store.updateClip(clip.id, (c) => { c.fadeOut = n; }), 0.5, 52)));
   root.append(box);
+  return box;
 }
