@@ -417,7 +417,7 @@ final class AppModel {
         let urls = playURLs
         guard urls.indices.contains(k), let i = photos.firstIndex(of: urls[k]) else { return }
         let cur = overrides[photos[i].path]
-        setOverride([i], dwell: abs(newDwell - dwell) < 0.001 ? nil : newDwell, transition: cur?.transition)
+        setOverride([i], dwell: abs(newDwell - dwell) < 0.001 ? nil : newDwell, transition: cur?.transition, fit: cur?.fit)
     }
 
     /// 再生ヘッドの位置にタイトルを足す
@@ -437,11 +437,11 @@ final class AppModel {
         showOverrides = true
     }
 
-    /// 選んだ写真に表示時間・切り替えを設定する（nil は全体の設定に従う）。両方 nil なら個別設定を外す
-    func setOverride(_ indices: [Int], dwell: TimeInterval?, transition: Transition?) {
+    /// 選んだ写真に表示時間・切り替え・収め方を設定する（nil は全体の設定に従う）。両方 nil なら個別設定を外す
+    func setOverride(_ indices: [Int], dwell: TimeInterval?, transition: Transition?, fit: FitMode? = nil) {
         var o = overrides
         for i in indices where photos.indices.contains(i) {
-            let v = PhotoOverride(dwell: dwell, transition: transition)
+            let v = PhotoOverride(dwell: dwell, transition: transition, fit: fit)
             if v.isEmpty { o[photos[i].path] = nil } else { o[photos[i].path] = v }
         }
         overrides = o

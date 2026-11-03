@@ -48,10 +48,11 @@ struct FrameLayer {
     let motionProgress: Double
     let fx: LayerFX
     let kenBurns: Bool          // この写真の切り替えが Ken Burns か
+    let fit: FitMode            // この写真の収め方
 }
 
 enum FrameRenderer {
-    static func draw(_ layers: [FrameLayer], in ctx: CGContext, size: CGSize, fit: FitMode,
+    static func draw(_ layers: [FrameLayer], in ctx: CGContext, size: CGSize,
                      titles: [TitleItem] = [], time: Double = 0, blackout: Double = 0) {
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(origin: .zero, size: size))
@@ -61,7 +62,7 @@ enum FrameRenderer {
             let s = kenBurns ? l.motion.scale(l.motionProgress) : 1
             let o = kenBurns ? l.motion.offset(l.motionProgress) : .zero
             let iw = CGFloat(l.image.width), ih = CGFloat(l.image.height)
-            let r = fit == .fill ? max(size.width / iw, size.height / ih) : min(size.width / iw, size.height / ih)
+            let r = l.fit == .fill ? max(size.width / iw, size.height / ih) : min(size.width / iw, size.height / ih)
             let fw = iw * r, fh = ih * r
             ctx.saveGState()
             ctx.setAlpha(l.fx.opacity)

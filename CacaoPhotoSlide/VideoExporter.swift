@@ -259,13 +259,13 @@ enum VideoExporter {
                 let p = min(1, max(0, (t - timing.starts[k - 1]) / timing.motionLength(k - 1)))
                 layers.append(FrameLayer(image: prev, motion: motions[k - 1], motionProgress: p,
                                          fx: TransitionMath.outgoing(timing.transitions[k], t: eased, width: size.width),
-                                         kenBurns: timing.transitions[k - 1] == .kenBurns))
+                                         kenBurns: timing.transitions[k - 1] == .kenBurns, fit: timing.fits[k - 1]))
             }
             if let cur = image(k) {
                 let fx = TransitionMath.incoming(timing.transitions[k], t: eased, width: size.width)
                 let p = min(1, max(0, (t - start) / timing.motionLength(k)))
                 layers.append(FrameLayer(image: cur, motion: motions[k], motionProgress: p, fx: fx,
-                                         kenBurns: timing.transitions[k] == .kenBurns))
+                                         kenBurns: timing.transitions[k] == .kenBurns, fit: timing.fits[k]))
             }
             // 最後の写真は、終わる endFade 秒前から黒へ（0 のときは切り替えの長さぶん）
             let lastTotal = timing.dwells[n - 1] + timing.trs[n - 1]
@@ -282,7 +282,7 @@ enum VideoExporter {
             CVPixelBufferLockBaseAddress(buffer, [])
             if let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: w, height: h, bitsPerComponent: 8,
                                    bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: colorSpace, bitmapInfo: bitmapInfo) {
-                FrameRenderer.draw(layers, in: ctx, size: size, fit: settings.fit,
+                FrameRenderer.draw(layers, in: ctx, size: size,
                                    titles: settings.titles, time: t, blackout: blackout)
             }
             CVPixelBufferUnlockBaseAddress(buffer, [])

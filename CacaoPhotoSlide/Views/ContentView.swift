@@ -520,12 +520,18 @@ private struct PreviewStill: View {
         return urls[min(urls.count - 1, model.timing.index(at: model.playhead))]
     }
 
+    private var fit: FitMode {
+        let n = model.playURLs.count
+        guard n > 0 else { return model.fit }
+        return model.timing.fits[min(n - 1, model.timing.index(at: model.playhead))]
+    }
+
     var body: some View {
         ZStack {
             if let image {
                 Image(decorative: image, scale: 1)
                     .resizable()
-                    .aspectRatio(contentMode: model.fit == .fill ? .fill : .fit)
+                    .aspectRatio(contentMode: fit == .fill ? .fill : .fit)
             }
             // 出し始めの 0.5 秒のフェードを待たずに見えるよう、少し進めた時刻で描く
             TitleOverlay(items: model.titles, time: model.playhead + TitleMath.fade)

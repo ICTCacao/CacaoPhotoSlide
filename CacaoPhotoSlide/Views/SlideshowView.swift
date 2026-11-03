@@ -42,7 +42,7 @@ struct SlideshowView: View {
         return Image(decorative: slide.image, scale: 1)
             .resizable()
             .interpolation(.high)
-            .aspectRatio(contentMode: controller.settings.fit == .fill ? .fill : .fit)
+            .aspectRatio(contentMode: controller.timing.fits[slide.index] == .fill ? .fill : .fit)
             .frame(width: size.width, height: size.height)
             .scaleEffect(s)
             .offset(x: o.x * size.width, y: o.y * size.height)

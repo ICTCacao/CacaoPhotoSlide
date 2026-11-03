@@ -30,7 +30,7 @@ enum PhotoOrder: String, CaseIterable, Identifiable {
 }
 
 /// 画面への収め方
-enum FitMode: String, CaseIterable, Identifiable {
+enum FitMode: String, CaseIterable, Identifiable, Codable {
     case fit, fill
     var id: String { rawValue }
     var label: String {
@@ -69,31 +69,34 @@ struct SlideshowSettings {
     var document: URL?                 // クリップの相対パスを解決するための書類の場所
     var endFade: TimeInterval = 0      // 最後の写真を、終わるこの秒数前から黒へフェードアウト（0 なら画面ではなし、mp4 は切り替えの長さ）
     var titles: [TitleItem] = []       // 画面に重ねる文字
-    var overrides: [String: PhotoOverride] = [:]   // 写真ごとの表示時間・切り替え（写真のパスがキー）
+    var overrides: [String: PhotoOverride] = [:]   // 写真ごとの表示時間・切り替え・収め方（写真のパスがキー）
 }
 
 /// 写真 1 枚だけの設定。nil の項目は全体の設定に従う
 struct PhotoOverride: Codable, Equatable {
     var dwell: TimeInterval?
     var transition: Transition?
-    var isEmpty: Bool { dwell == nil && transition == nil }
+    var fit: FitMode?
+    var isEmpty: Bool { dwell == nil && transition == nil && fit == nil }
 }
 
 /// 流す写真ごとの表示時間・切り替え・開始時刻（個別設定を反映）。画面・タイムライン・mp4 で同じものを使う
 struct SlideTiming {
     let dwells: [TimeInterval]
     let transitions: [Transition]
+    let fits: [FitMode]
     let trs: [TimeInterval]        // その写真に入ってくる切り替えの長さ（前の写真・自分の長さを超えない）
     let starts: [TimeInterval]
     let total: TimeInterval        // 最後の黒へのフェードを含む全体の長さ
     var count: Int { dwells.count }
 
     init(urls: [URL], settings: SlideshowSettings) {
-        var dw: [TimeInterval] = [], tx: [Transition] = []
+        var dw: [TimeInterval] = [], tx: [Transition] = [], ft: [FitMode] = []
         for u in urls {
             let o = settings.overrides[u.path]
             dw.append(max(0.1, o?.dwell ?? settings.dwell))
             tx.append(o?.transition ?? settings.transition)
+            ft.append(o?.fit ?? settings.fit)
         }
         var tr: [TimeInterval] = []
         for i in dw.indices {
@@ -102,7 +105,7 @@ struct SlideTiming {
         var st: [TimeInterval] = []
         var t: TimeInterval = 0
         for d in dw { st.append(t); t += d }
-        dwells = dw; transitions = tx; trs = tr; starts = st
+        dwells = dw; transitions = tx; fits = ft; trs = tr; starts = st
         total = t + (tr.last ?? 0)
     }
 
