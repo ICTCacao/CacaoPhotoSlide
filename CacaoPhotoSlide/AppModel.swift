@@ -27,6 +27,8 @@ final class AppModel {
     var message: String?
     var isShowing = false             // 全画面（別ウインドウ）で流している
     var isPreviewing = false          // プレビューのタブの中で流している
+    var playhead: TimeInterval = 0    // タイムラインの再生ヘッド（流していないときの位置。静止画のプレビューもここ）
+    var timelineZoom: Double = 1      // タイムラインの横の拡大率（1 で全体が収まる）
     var tab: MainTab = .photos
 
     /// 選んだ写真。1 枚なら「そこから開始」、2 枚以上なら「その写真だけを流す」
@@ -60,6 +62,11 @@ final class AppModel {
         didSet { ud.set(try? JSONEncoder().encode(titles), forKey: Prefs.titles) }
     }
     var showTitles = false
+    /// 写真ごとの表示時間・切り替え（写真のパスがキー。全体の設定を変えても、ここは変わらない）
+    var overrides: [String: PhotoOverride] = [:] {
+        didSet { ud.set(try? JSONEncoder().encode(overrides), forKey: Prefs.overrides) }
+    }
+    var showOverrides = false
     var transitionDuration: Double { didSet { ud.set(transitionDuration, forKey: Prefs.transitionDuration) } }
     var order: PhotoOrder {
         didSet {
@@ -100,6 +107,7 @@ final class AppModel {
         transition = Transition(rawValue: ud.string(forKey: Prefs.transition) ?? "") ?? .kenBurns
         transitionDuration = ud.object(forKey: Prefs.transitionDuration) as? Double ?? 1.5
         endFade = ud.object(forKey: Prefs.endFade) as? Double ?? 0
+        if let d = ud.data(forKey: Prefs.overrides), let o = try? JSONDecoder().decode([String: PhotoOverride].self, from: d) { overrides = o }
         if let d = ud.data(forKey: Prefs.titles), let t = try? JSONDecoder().decode([TitleItem].self, from: d) { titles = t }
         order = PhotoOrder(rawValue: ud.string(forKey: Prefs.order) ?? "") ?? .name
         manualOrder = ud.stringArray(forKey: Prefs.manualOrder) ?? []
@@ -130,6 +138,7 @@ final class AppModel {
     private func setSources(_ list: [URL]) {
         sources = list
         removedPaths = []
+        overrides = [:]
         ud.set(list.map(\.path), forKey: Prefs.lastSources)
         rescan()
     }
@@ -340,13 +349,14 @@ final class AppModel {
         SlideshowSettings(
             dwell: dwell,
             transition: transition,
-            transitionDuration: transition == .none ? 0 : min(transitionDuration, dwell),
+            transitionDuration: transitionDuration,
             loop: loop,
             fit: fit,
             clips: clips,
             document: documentURL,
             endFade: endFade,
-            titles: titles)
+            titles: titles,
+            overrides: overrides)
     }
 
     // MARK: 所要時間・タイムライン
@@ -355,7 +365,81 @@ final class AppModel {
     var playCount: Int { selection.count >= 2 ? selection.count : photos.count }
 
     /// 所要時間（秒）。最後の黒へのフェードを含む
-    var totalDuration: TimeInterval { VideoExporter.duration(count: playCount, settings: slideshowSettings) }
+    var totalDuration: TimeInterval { timing.total }
+
+    /// 流す写真（選んだ写真だけなら、その写真）。ランダムのときは今の並びで数える
+    var playURLs: [URL] {
+        selection.count >= 2 ? selection.sorted().compactMap { photos.indices.contains($0) ? photos[$0] : nil } : photos
+    }
+
+    /// 流す写真ごとの長さと開始時刻（個別設定を反映）
+    var timing: SlideTiming { SlideTiming(urls: playURLs, settings: slideshowSettings) }
+
+    /// 個別設定のある写真の数（流す写真のうち）
+    var overrideCountInPlay: Int { playURLs.filter { !(overrides[$0.path]?.isEmpty ?? true) }.count }
+
+    /// 「12 枚 × 5 秒」の形の説明（個別設定があれば添える）
+    var playSummary: String {
+        let n = overrideCountInPlay
+        return "\(playCount) 枚 × \(ContentView.seconds(dwell))" + (n > 0 ? "（うち \(n) 枚は個別設定）" : "")
+    }
+
+    // MARK: 再生ヘッド
+
+    /// 再生ヘッドを動かす（スクラブ）。流している最中なら、その時刻の写真へ飛ぶ
+    func scrub(to time: TimeInterval) {
+        let t = min(max(0, time), timing.total)
+        playhead = t
+        if let c = activeController {
+            if let cur = c.current, c.timing.index(at: t) == cur.index { return }
+            c.jump(to: t)
+        }
+    }
+
+    /// 前／後ろの写真の頭へ（流していないとき）。前へは、写真の途中ならその写真の頭
+    func stepPlayhead(_ delta: Int) {
+        let tm = timing
+        guard tm.count > 0 else { return }
+        let i = tm.index(at: playhead)
+        var target = i + delta
+        if delta < 0, playhead > tm.starts[i] + 0.05 { target = i }
+        playhead = tm.starts[min(max(0, target), tm.count - 1)]
+    }
+
+    /// 流す写真の k 番目の表示時間を変える（タイムラインで端をドラッグ）。全体の設定と同じなら個別設定を外す
+    func setPhotoDwell(playIndex k: Int, dwell newDwell: TimeInterval) {
+        let urls = playURLs
+        guard urls.indices.contains(k), let i = photos.firstIndex(of: urls[k]) else { return }
+        let cur = overrides[photos[i].path]
+        setOverride([i], dwell: abs(newDwell - dwell) < 0.001 ? nil : newDwell, transition: cur?.transition)
+    }
+
+    /// 再生ヘッドの位置にタイトルを足す
+    func addTitle(at time: TimeInterval) {
+        var item = TitleItem()
+        item.start = (time * 10).rounded() / 10
+        if !titles.isEmpty { item.anchor = .top; item.size = 0.05 }
+        titles.append(item)
+    }
+
+    // MARK: 写真ごとの設定
+
+    /// 個別設定を開く。i を指定して、選んでいない写真なら、その 1 枚を選ぶ
+    func openOverrides(for i: Int? = nil) {
+        if let i, photos.indices.contains(i), !selection.contains(i) { selection = [i]; anchor = i }
+        guard !selection.isEmpty else { return }
+        showOverrides = true
+    }
+
+    /// 選んだ写真に表示時間・切り替えを設定する（nil は全体の設定に従う）。両方 nil なら個別設定を外す
+    func setOverride(_ indices: [Int], dwell: TimeInterval?, transition: Transition?) {
+        var o = overrides
+        for i in indices where photos.indices.contains(i) {
+            let v = PhotoOverride(dwell: dwell, transition: transition)
+            if v.isEmpty { o[photos[i].path] = nil } else { o[photos[i].path] = v }
+        }
+        overrides = o
+    }
 
     /// 音声ファイルをタイムラインに置く。at が nil なら最後のクリップの後ろ（なければ 0 秒）。track は段
     func addClip(url: URL, at start: TimeInterval?, track: Int = 0) {
@@ -409,9 +493,10 @@ final class AppModel {
     func moveClip(_ id: UUID, to start: TimeInterval, snap: TimeInterval? = nil, track: Int? = nil) {
         guard let i = clips.firstIndex(where: { $0.id == id }) else { return }
         var s = max(0, start)
-        if let snap, dwell > 0 {
-            let k = (s / dwell).rounded()
-            if abs(k * dwell - s) <= snap { s = k * dwell }
+        if let snap {
+            // 写真の区切りに吸着
+            let marks = timing.starts
+            if let near = marks.min(by: { abs($0 - s) < abs($1 - s) }), abs(near - s) <= snap { s = near }
             if abs(s) <= snap { s = 0 }
         }
         clips[i].start = s
@@ -519,6 +604,7 @@ final class AppModel {
         f.transitionDuration = transitionDuration
         f.endFade = endFade
         f.titles = titles
+        f.overrides = overrides.filter { !$0.value.isEmpty }
         f.order = order.rawValue
         f.loop = loop
         f.recursive = recursive
@@ -536,6 +622,7 @@ final class AppModel {
         ud.removeObject(forKey: Prefs.lastDocument)
         removedPaths = []
         titles = []
+        overrides = [:]
         clips = []
         selectedClip = nil
         sources = []
@@ -557,6 +644,8 @@ final class AppModel {
             transitionDuration = f.transitionDuration
             endFade = f.endFade
             titles = f.titles
+            overrides = Dictionary(f.overrides.map { ($0.key.hasPrefix("/") ? $0.key : url.appendingPathComponent($0.key).path, $0.value) },
+                                   uniquingKeysWith: { a, _ in a })
             loop = f.loop
             fit = FitMode(rawValue: f.fit) ?? .fit
             exportSize = ExportSize(rawValue: f.exportSize) ?? .hd1080
@@ -662,6 +751,10 @@ final class AppModel {
                 NSDocumentController.shared.noteNewRecentDocumentURL(url)
                 // 保存後は書類の中の相対パスで持つ
                 if let saved = try? ProjectDocument.load(from: url) {
+                    if includePhotos {
+                        overrides = Dictionary(saved.overrides.map { ($0.key.hasPrefix("/") ? $0.key : url.appendingPathComponent($0.key).path, $0.value) },
+                                               uniquingKeysWith: { a, _ in a })
+                    }
                     if includePhotos, order == .manual {
                         manualOrder = saved.manualOrder.map { url.appendingPathComponent($0).path }
                     }
@@ -732,6 +825,7 @@ final class AppModel {
 
     func stopSlideshow() {
         if isPreviewing {
+            if let c = activeController { playhead = min(c.timelineTime(at: Date()), timing.total) }   // 止めた位置を残す
             activeController?.stop()
             activeController = nil
             isPreviewing = false
@@ -741,13 +835,16 @@ final class AppModel {
     }
 
     /// プレビューのタブの中で流す（音声も鳴る）。全画面と同じ描画
-    func startPreview() {
+    /// k はタイムライン上の何枚目（流す写真の中の番号）から始めるか。nil なら最初（選んでいれば選んだ写真）から
+    func startPreview(at k: Int? = nil) {
         guard !photos.isEmpty, window == nil, !isPreviewing else { return }
-        let (list, first) = makePlaylist()
+        var preferred: Int?
+        if let k, playURLs.indices.contains(k) { preferred = photos.firstIndex(of: playURLs[k]) }
+        let (list, first) = makePlaylist(startingAt: preferred)
         guard !list.isEmpty else { return }
         stopAudition()
         let controller = SlideshowController(urls: list, settings: slideshowSettings, maxPixel: 1600)
-        controller.onFinish = { [weak self] in self?.stopSlideshow() }
+        controller.onFinish = { [weak self] in self?.stopSlideshow(); self?.playhead = 0 }   // 最後まで流したら頭へ
         activeController = controller
         isPreviewing = true
         controller.start(at: first)

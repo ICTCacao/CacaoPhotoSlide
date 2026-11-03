@@ -1,7 +1,7 @@
 import Foundation
 
 /// 写真の切り替え方
-enum Transition: String, CaseIterable, Identifiable {
+enum Transition: String, CaseIterable, Identifiable, Codable {
     case kenBurns, crossfade, push, zoom, none
     var id: String { rawValue }
     var label: String {
@@ -69,6 +69,61 @@ struct SlideshowSettings {
     var document: URL?                 // クリップの相対パスを解決するための書類の場所
     var endFade: TimeInterval = 0      // 最後の写真を、終わるこの秒数前から黒へフェードアウト（0 なら画面ではなし、mp4 は切り替えの長さ）
     var titles: [TitleItem] = []       // 画面に重ねる文字
+    var overrides: [String: PhotoOverride] = [:]   // 写真ごとの表示時間・切り替え（写真のパスがキー）
+}
+
+/// 写真 1 枚だけの設定。nil の項目は全体の設定に従う
+struct PhotoOverride: Codable, Equatable {
+    var dwell: TimeInterval?
+    var transition: Transition?
+    var isEmpty: Bool { dwell == nil && transition == nil }
+}
+
+/// 流す写真ごとの表示時間・切り替え・開始時刻（個別設定を反映）。画面・タイムライン・mp4 で同じものを使う
+struct SlideTiming {
+    let dwells: [TimeInterval]
+    let transitions: [Transition]
+    let trs: [TimeInterval]        // その写真に入ってくる切り替えの長さ（前の写真・自分の長さを超えない）
+    let starts: [TimeInterval]
+    let total: TimeInterval        // 最後の黒へのフェードを含む全体の長さ
+    var count: Int { dwells.count }
+
+    init(urls: [URL], settings: SlideshowSettings) {
+        var dw: [TimeInterval] = [], tx: [Transition] = []
+        for u in urls {
+            let o = settings.overrides[u.path]
+            dw.append(max(0.1, o?.dwell ?? settings.dwell))
+            tx.append(o?.transition ?? settings.transition)
+        }
+        var tr: [TimeInterval] = []
+        for i in dw.indices {
+            tr.append(tx[i] == .none ? 0 : min(settings.transitionDuration, dw[i], i > 0 ? dw[i - 1] : dw[i]))
+        }
+        var st: [TimeInterval] = []
+        var t: TimeInterval = 0
+        for d in dw { st.append(t); t += d }
+        dwells = dw; transitions = tx; trs = tr; starts = st
+        total = t + (tr.last ?? 0)
+    }
+
+    /// その時刻に出ている写真の番号
+    func index(at time: TimeInterval) -> Int {
+        guard !starts.isEmpty else { return 0 }
+        var lo = 0, hi = starts.count - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if starts[mid] <= time { lo = mid } else { hi = mid - 1 }
+        }
+        return lo
+    }
+
+    /// 写真の区切り（count + 1 個。最後は最後の写真の表示が終わる時刻）
+    var bounds: [TimeInterval] { starts + [(starts.last ?? 0) + (dwells.last ?? 0)] }
+
+    /// Ken Burns の動きの長さ。次の写真に切り替わり終わるまで動かす
+    func motionLength(_ i: Int) -> TimeInterval {
+        dwells[i] + (i + 1 < count ? trs[i + 1] : trs[i])
+    }
 }
 
 enum Prefs {
@@ -79,6 +134,7 @@ enum Prefs {
     static let manualOrder = "manualOrder"
     static let endFade = "endFade"
     static let titles = "titles"
+    static let overrides = "overrides"
     static let loop = "loop"
     static let recursive = "recursive"
     static let fit = "fit"

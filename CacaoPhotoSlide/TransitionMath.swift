@@ -47,16 +47,17 @@ struct FrameLayer {
     let motion: KenBurnsMotion
     let motionProgress: Double
     let fx: LayerFX
+    let kenBurns: Bool          // この写真の切り替えが Ken Burns か
 }
 
 enum FrameRenderer {
-    static func draw(_ layers: [FrameLayer], in ctx: CGContext, size: CGSize, transition: Transition, fit: FitMode,
+    static func draw(_ layers: [FrameLayer], in ctx: CGContext, size: CGSize, fit: FitMode,
                      titles: [TitleItem] = [], time: Double = 0, blackout: Double = 0) {
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(origin: .zero, size: size))
         ctx.interpolationQuality = .high
         for l in layers {
-            let kenBurns = transition == .kenBurns
+            let kenBurns = l.kenBurns
             let s = kenBurns ? l.motion.scale(l.motionProgress) : 1
             let o = kenBurns ? l.motion.offset(l.motionProgress) : .zero
             let iw = CGFloat(l.image.width), ih = CGFloat(l.image.height)

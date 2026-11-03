@@ -76,6 +76,7 @@ struct ProjectFile: Codable {
     var excluded: [String] = []       // パネルで外した写真（絶対パス）。流さず、書類にもコピーしない
     var endFade: Double = 0           // 最後の写真のフェードアウト（秒、0 でなし）
     var titles: [TitleItem] = []      // 画面に重ねる文字
+    var overrides: [String: PhotoOverride] = [:]   // 写真ごとの表示時間・切り替え（写真入りなら photos/ の相対パスがキー）
     var manualOrder: [String] = []    // 順番が「手動」のときの並び（写真入りなら photos/ の相対パス）
 
     init() {}
@@ -100,6 +101,7 @@ struct ProjectFile: Codable {
         excluded = try c.decodeIfPresent([String].self, forKey: .excluded) ?? []
         endFade = try c.decodeIfPresent(Double.self, forKey: .endFade) ?? 0
         titles = try c.decodeIfPresent([TitleItem].self, forKey: .titles) ?? []
+        overrides = try c.decodeIfPresent([String: PhotoOverride].self, forKey: .overrides) ?? [:]
         manualOrder = try c.decodeIfPresent([String].self, forKey: .manualOrder) ?? []
     }
 }
@@ -145,6 +147,11 @@ enum ProjectDocument {
             }
             file.includesPhotos = true
             file.selection = selected.compactMap { map[$0.standardizedFileURL] }.map { "photos/\($0)" }
+            var newOverrides: [String: PhotoOverride] = [:]
+            for (key, value) in file.overrides {
+                if let name = map[URL(fileURLWithPath: key).standardizedFileURL] { newOverrides["photos/\(name)"] = value }
+            }
+            file.overrides = newOverrides
             if file.order == PhotoOrder.manual.rawValue {
                 file.manualOrder = photos.compactMap { map[$0.standardizedFileURL] }.map { "photos/\($0)" }
             }

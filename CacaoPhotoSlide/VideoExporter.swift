@@ -69,12 +69,6 @@ enum ExportError: LocalizedError {
 
 /// スライドショーを 1 コマずつ描いて mp4（H.264）にする
 enum VideoExporter {
-    /// 全体の長さ（秒）。最後は切り替えの長さぶん黒にフェードする
-    static func duration(count: Int, settings: SlideshowSettings) -> TimeInterval {
-        let tr = min(settings.transitionDuration, settings.dwell)
-        return Double(count) * settings.dwell + tr
-    }
-
     @MainActor static func export(urls: [URL], settings: SlideshowSettings, options: ExportOptions, to output: URL, job: ExportJob) async {
         let flag = job.flag
         // クリップのトラックは先に読んでおく（読めないものは飛ばす）
@@ -111,9 +105,8 @@ enum VideoExporter {
         guard n > 0 else { throw ExportError.noImages }
         let w = Int(options.size.width), h = Int(options.size.height)
         let fps = options.fps
-        let dwell = settings.dwell
-        let tr = min(settings.transitionDuration, dwell)
-        let total = Int((Double(n) * dwell + tr) * Double(fps) + 0.5)
+        let timing = SlideTiming(urls: urls, settings: settings)
+        let total = Int(timing.total * Double(fps) + 0.5)
         let motions = (0..<n).map { _ in KenBurnsMotion.random() }
         let maxPixel = Int(Double(max(w, h)) * 1.3)
 
@@ -256,27 +249,29 @@ enum VideoExporter {
                 throw ExportError.cancelled
             }
             let t = Double(f) / Double(fps)
-            let k = min(n - 1, Int(t / dwell))
-            let start = Double(k) * dwell
+            let k = timing.index(at: t)
+            let start = timing.starts[k]
+            let tr = timing.trs[k]
             let tt = tr > 0 ? min(1, max(0, (t - start) / tr)) : 1
             let eased = TransitionMath.easeInOut(tt)
             var layers: [FrameLayer] = []
             if eased < 1, k > 0, let prev = image(k - 1) {
-                let p = min(1, max(0, (t - Double(k - 1) * dwell) / (dwell + tr)))
+                let p = min(1, max(0, (t - timing.starts[k - 1]) / timing.motionLength(k - 1)))
                 layers.append(FrameLayer(image: prev, motion: motions[k - 1], motionProgress: p,
-                                         fx: TransitionMath.outgoing(settings.transition, t: eased, width: size.width)))
+                                         fx: TransitionMath.outgoing(timing.transitions[k], t: eased, width: size.width),
+                                         kenBurns: timing.transitions[k - 1] == .kenBurns))
             }
             if let cur = image(k) {
-                let fx = TransitionMath.incoming(settings.transition, t: eased, width: size.width)
-                let p = min(1, max(0, (t - start) / (dwell + tr)))
-                layers.append(FrameLayer(image: cur, motion: motions[k], motionProgress: p, fx: fx))
+                let fx = TransitionMath.incoming(timing.transitions[k], t: eased, width: size.width)
+                let p = min(1, max(0, (t - start) / timing.motionLength(k)))
+                layers.append(FrameLayer(image: cur, motion: motions[k], motionProgress: p, fx: fx,
+                                         kenBurns: timing.transitions[k] == .kenBurns))
             }
-
             // 最後の写真は、終わる endFade 秒前から黒へ（0 のときは切り替えの長さぶん）
-            let lastTotal = dwell + tr
+            let lastTotal = timing.dwells[n - 1] + timing.trs[n - 1]
             let blackout = k == n - 1
-                ? TransitionMath.endFadeAlpha(elapsed: t - Double(n - 1) * dwell, total: lastTotal,
-                                              fade: min(lastTotal, settings.endFade > 0 ? settings.endFade : tr))
+                ? TransitionMath.endFadeAlpha(elapsed: t - timing.starts[n - 1], total: lastTotal,
+                                              fade: min(lastTotal, settings.endFade > 0 ? settings.endFade : timing.trs[n - 1]))
                 : 0
 
             while !input.isReadyForMoreMediaData { usleep(2000) }
@@ -287,7 +282,7 @@ enum VideoExporter {
             CVPixelBufferLockBaseAddress(buffer, [])
             if let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: w, height: h, bitsPerComponent: 8,
                                    bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: colorSpace, bitmapInfo: bitmapInfo) {
-                FrameRenderer.draw(layers, in: ctx, size: size, transition: settings.transition, fit: settings.fit,
+                FrameRenderer.draw(layers, in: ctx, size: size, fit: settings.fit,
                                    titles: settings.titles, time: t, blackout: blackout)
             }
             CVPixelBufferUnlockBaseAddress(buffer, [])

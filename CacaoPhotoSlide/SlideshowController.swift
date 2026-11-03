@@ -44,6 +44,7 @@ struct Slide {
 final class SlideshowController {
     let urls: [URL]
     let settings: SlideshowSettings
+    let timing: SlideTiming
     private let loader: ImageLoader
 
     private(set) var current: Slide?
@@ -68,6 +69,7 @@ final class SlideshowController {
     init(urls: [URL], settings: SlideshowSettings, maxPixel: Int) {
         self.urls = urls
         self.settings = settings
+        self.timing = SlideTiming(urls: urls, settings: settings)
         self.loader = ImageLoader(urls: urls, maxPixel: maxPixel)
         music = MusicTimeline(clips: settings.clips, document: settings.document)
     }
@@ -135,13 +137,13 @@ final class SlideshowController {
     func timelineTime(at date: Date) -> TimeInterval {
         guard let cur = current else { return 0 }
         let clock = pausedAt ?? date
-        return Double(cur.index) * settings.dwell + min(settings.dwell, max(0, clock.timeIntervalSince(cur.start)))
+        return timing.starts[cur.index] + min(timing.dwells[cur.index], max(0, clock.timeIntervalSince(cur.start)))
     }
 
     /// タイムラインの時刻へ飛ぶ（その時刻の写真を出す）
     func jump(to time: TimeInterval) {
-        guard count > 0, settings.dwell > 0 else { return }
-        let i = min(count - 1, max(0, Int(time / settings.dwell)))
+        guard count > 0 else { return }
+        let i = timing.index(at: time)
         show(i, direction: 1, manual: true, resync: true)
     }
 
@@ -150,7 +152,7 @@ final class SlideshowController {
     /// 切り替えの進み具合 0→1（実時間。停止中でも切り替え自体は最後まで動く）
     func transitionProgress(at date: Date) -> Double {
         guard let cur = current else { return 1 }
-        let d = settings.transitionDuration
+        let d = timing.trs[cur.index]
         guard d > 0 else { return 1 }
         return min(1, max(0, date.timeIntervalSince(cur.start) / d))
     }
@@ -158,8 +160,7 @@ final class SlideshowController {
     /// Ken Burns の進み具合 0→1（停止中は止まる）
     func motionProgress(_ slide: Slide, at date: Date) -> Double {
         let clock = pausedAt ?? date
-        let total = settings.dwell + settings.transitionDuration
-        return min(1, max(0, clock.timeIntervalSince(slide.start) / total))
+        return min(1, max(0, clock.timeIntervalSince(slide.start) / timing.motionLength(slide.index)))
     }
 
     /// 最後の写真を、フェードアウトしてから終わらせるか（繰り返さないときだけ）
@@ -167,9 +168,12 @@ final class SlideshowController {
         settings.endFade > 0 && !settings.loop && slide.index == count - 1
     }
 
+    /// この写真の切り替え（個別設定を反映）
+    func transition(of slide: Slide) -> Transition { timing.transitions[slide.index] }
+
     /// 最後の写真が終わるまでの秒数（フェードアウトするときは切り替えの長さぶん長い）
     private func holdDuration(_ slide: Slide) -> TimeInterval {
-        settings.dwell + (fadesAtEnd(slide) ? settings.transitionDuration : 0)
+        timing.dwells[slide.index] + (fadesAtEnd(slide) ? timing.trs[slide.index] : 0)
     }
 
     /// 画面にかぶせる黒の濃さ（最後の写真のフェードアウト）
@@ -203,7 +207,7 @@ final class SlideshowController {
             previous = current
             current = Slide(index: index, url: urls[index], image: image, start: now, motion: .random())
             // 音楽は、最初・矢印で飛んだとき・最初に戻ったときだけ写真の位置に合わせ直す。自動送りでは触らない（毎回合わせると音が飛ぶ）
-            if resync { music?.set(time: Double(index) * settings.dwell, playing: pausedAt == nil) }
+            if resync { music?.set(time: timing.starts[index], playing: pausedAt == nil) }
             let loop = settings.loop
             Task { await self.loader.preload(around: index, loop: loop) }
             scheduleAdvance()

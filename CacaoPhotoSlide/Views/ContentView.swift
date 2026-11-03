@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var targeted = false
+    @AppStorage("previewHeight") private var previewHeight = 300.0   // プレビューの画面の高さ（境目をドラッグして変える）
+    @State private var splitStart: Double?
     @State private var dropTarget: Int?      // 並べ替えのドラッグで、差し込み先に光らせる写真
 
     var body: some View {
@@ -41,6 +43,9 @@ struct ContentView: View {
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in handleDrop(providers) }
         .sheet(isPresented: Bindable(model).showExport) {
             ExportSheet().environment(model)
+        }
+        .sheet(isPresented: Bindable(model).showOverrides) {
+            PhotoOverrideSheet().environment(model)
         }
         .sheet(isPresented: Bindable(model).showTitles) {
             TitlesSheet().environment(model)
@@ -114,6 +119,14 @@ struct ContentView: View {
                 .controlSize(.small)
                 .disabled(model.photos.isEmpty)
                 .help("選んだ写真（なければ先頭）を大きく見る（⌘Y）")
+                Button {
+                    model.openOverrides()
+                } label: {
+                    Label("個別設定", systemImage: "slider.horizontal.3")
+                }
+                .controlSize(.small)
+                .disabled(model.selection.isEmpty)
+                .help("選んだ写真だけ、表示時間とエフェクトを変える")
                 Button("開く…") { model.openPanel() }
             }
             HStack(spacing: 6) {
@@ -129,7 +142,7 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                     .help("選択を解除して、全部を最初から")
                 } else {
-                    Text("クリック: その写真から開始　⌘ / ⇧クリック: 複数を選んで、その写真だけを流す　ダブルクリック: すぐ開始　ドラッグ: 並べ替え　右クリックや Delete: 写真を外す")
+                    Text("クリック: その写真から開始　⌘ / ⇧クリック: 複数を選んで、その写真だけを流す　ダブルクリック: すぐ開始　ドラッグ: 並べ替え　右クリック: 個別設定・写真を外す")
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
@@ -176,6 +189,19 @@ struct ContentView: View {
                         .padding(3)
                 }
             }
+            .overlay(alignment: .topLeading) {
+                if let o = model.overrides[model.photos[i].path], !o.isEmpty {
+                    HStack(spacing: 2) {
+                        Image(systemName: o.transition == nil ? "clock" : "wand.and.stars")
+                        if let d = o.dwell { Text(d == d.rounded() ? "\(Int(d))s" : String(format: "%.1fs", d)) }
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 4).padding(.vertical, 2)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .foregroundStyle(.white)
+                    .padding(3)
+                }
+            }
             .overlay(alignment: .leading) {
                 if dropTarget == i {
                     Capsule().fill(Color.accentColor).frame(width: 4, height: 64).offset(x: -5)
@@ -203,6 +229,7 @@ struct ContentView: View {
             } else {
                 Button("この写真を外す") { model.removePhoto(i) }
             }
+            Button("表示時間・エフェクトを変える…") { model.openOverrides(for: i) }
             Button("拡大して見る") { model.showViewer(i) }
             Divider()
             let targets = model.selection.contains(i) ? model.selection.sorted() : [i]
@@ -230,7 +257,7 @@ struct ContentView: View {
     // MARK: プレビュー
 
     private var previewTab: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 6) {
             ZStack {
                 Color.black
                 if model.isPreviewing, let c = model.activeController {
@@ -239,7 +266,7 @@ struct ContentView: View {
                     PreviewStill()
                     if !model.photos.isEmpty && !model.isScanning {
                         Button {
-                            model.startPreview()
+                            model.startPreview(at: model.timing.index(at: model.playhead))
                         } label: {
                             Image(systemName: "play.circle.fill")
                                 .font(.system(size: 64))
@@ -247,38 +274,82 @@ struct ContentView: View {
                                 .shadow(radius: 6)
                         }
                         .buttonStyle(.plain)
-                        .help("ここで流してみる（音声も鳴ります）")
+                        .help("再生ヘッドの写真から、ここで流してみる（音声も鳴ります）")
                     } else {
                         Text("「写真」のタブで写真を開いてください").foregroundStyle(.white.opacity(0.7))
                     }
                 }
             }
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
-            .frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 8))
+            .frame(maxWidth: .infinity)
+            .frame(height: CGFloat(previewHeight))
+            splitter
             transport
             AudioTimelineView().environment(model)
         }
     }
 
+    /// プレビューとタイムラインの境目。上下にドラッグしてプレビューの大きさを変える
+    private var splitter: some View {
+        ZStack {
+            Rectangle().fill(Color.clear).frame(height: 12)
+            Capsule().fill(Color.secondary.opacity(0.5)).frame(width: 56, height: 4)
+        }
+        .contentShape(Rectangle())
+        .onHover { inside in if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() } }
+        .gesture(
+            DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { v in
+                    if splitStart == nil { splitStart = previewHeight }
+                    previewHeight = min(900, max(120, (splitStart ?? previewHeight) + v.translation.height))
+                }
+                .onEnded { _ in splitStart = nil }
+        )
+        .help("上下にドラッグして、プレビューの大きさを変える")
+    }
+
     private var transport: some View {
         HStack(spacing: 10) {
+            Button {
+                if model.isPreviewing, let c = model.activeController { c.previousSlide() } else { model.stepPlayhead(-1) }
+            } label: { Image(systemName: "backward.end.fill") }
+                .help("前の写真")
+                .disabled(model.photos.isEmpty)
             if model.isPreviewing, let c = model.activeController {
-                Button { c.previousSlide() } label: { Image(systemName: "backward.fill") }
-                    .help("前の写真")
                 Button { c.togglePause() } label: {
                     Label(c.isPaused ? "再開" : "一時停止", systemImage: c.isPaused ? "play.fill" : "pause.fill")
                         .frame(width: 80)
                 }
-                Button { c.next() } label: { Image(systemName: "forward.fill") }
-                    .help("次の写真")
-                Button { model.stopSlideshow() } label: { Label("停止", systemImage: "stop.fill") }
+                .keyboardShortcut(.space, modifiers: [])
             } else {
-                Button { model.startPreview() } label: { Label("ここで再生", systemImage: "play.fill") }
-                    .disabled(model.photos.isEmpty || model.isScanning || model.isShowing)
+                Button { model.startPreview(at: model.timing.index(at: model.playhead)) } label: {
+                    Label("再生", systemImage: "play.fill").frame(width: 80)
+                }
+                .keyboardShortcut(.space, modifiers: [])
+                .disabled(model.photos.isEmpty || model.isScanning || model.isShowing)
             }
+            Button { model.stopSlideshow() } label: { Image(systemName: "stop.fill") }
+                .disabled(!model.isPreviewing)
+                .help("停止（今の位置に再生ヘッドが残ります）")
+            Button {
+                if model.isPreviewing, let c = model.activeController { c.next() } else { model.stepPlayhead(1) }
+            } label: { Image(systemName: "forward.end.fill") }
+                .help("次の写真")
+                .disabled(model.photos.isEmpty)
+            Group {
+                if model.isPreviewing, let c = model.activeController {
+                    TimelineView(.animation(paused: c.timelinePaused)) { ctx in
+                        Text(ExportSheet.clock(c.timelineTime(at: ctx.date)))
+                    }
+                } else {
+                    Text(ExportSheet.clock(model.playhead))
+                }
+            }
+            .monospacedDigit()
+            Text("/ \(ExportSheet.clock(model.totalDuration))").foregroundStyle(.secondary).monospacedDigit()
             Spacer()
-            Text("\(model.playCount) 枚　所要 \(Self.duration(model.totalDuration))")
+            Text("\(model.playCount) 枚")
                 .font(.callout).foregroundStyle(.secondary).monospacedDigit()
         }
     }
@@ -438,14 +509,15 @@ struct ContentView: View {
     }
 }
 
-/// プレビューで流していないときの静止画（選んだ写真か先頭の写真に、タイトルを重ねて）
+/// プレビューで流していないときの静止画（再生ヘッドの位置の写真に、その時刻のタイトルを重ねて）
 private struct PreviewStill: View {
     @Environment(AppModel.self) private var model
     @State private var image: CGImage?
 
     private var url: URL? {
-        let i = model.selection.min() ?? 0
-        return model.photos.indices.contains(i) ? model.photos[i] : nil
+        let urls = model.playURLs
+        guard !urls.isEmpty else { return nil }
+        return urls[min(urls.count - 1, model.timing.index(at: model.playhead))]
     }
 
     var body: some View {
@@ -455,7 +527,8 @@ private struct PreviewStill: View {
                     .resizable()
                     .aspectRatio(contentMode: model.fit == .fill ? .fill : .fit)
             }
-            TitleOverlay(items: model.titles, time: nil)
+            // 出し始めの 0.5 秒のフェードを待たずに見えるよう、少し進めた時刻で描く
+            TitleOverlay(items: model.titles, time: model.playhead + TitleMath.fade)
         }
         .clipped()
         .task(id: url) {

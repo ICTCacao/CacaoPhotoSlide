@@ -30,7 +30,7 @@ struct ExportSheet: View {
             }
             .pickerStyle(.segmented)
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(self.model.exportCount) 枚 × \(ContentView.seconds(self.model.dwell)) ＝ 約 \(Self.clock(self.model.exportDuration))")
+                Text("\(self.model.playSummary) ＝ 約 \(Self.clock(self.model.exportDuration))")
                 Text("切り替え・順番・選んだ写真・表示のしかたは、今の設定のまま。")
                     .foregroundStyle(.secondary)
                 if self.model.clips.isEmpty {

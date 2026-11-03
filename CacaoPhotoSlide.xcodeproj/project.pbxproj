@@ -20,6 +20,7 @@
 		8B8000EA9B020DDE8A10CFA3 /* MusicTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8258F6F9D29CF3AE4E42B401 /* MusicTimeline.swift */; };
 		92B92D676A0088668FD166F0 /* SlideshowWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19FEE8B5E66F5FC36CC284E7 /* SlideshowWindow.swift */; };
 		A1579B999292194CC62DFF03 /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE0A5F92E38B0A2CA47173D0 /* Project.swift */; };
+		A68BB9E03115D1E309A6AFB4 /* PhotoOverrideSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92F591028CABB98E5E9C9B5B /* PhotoOverrideSheet.swift */; };
 		A92848AC1CC6654D204C438C /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDAF6150D4B712E50F6B8100 /* ContentView.swift */; };
 		AC54920A238F1657FC7AC6C3 /* AudioTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2B1FDD3452DC9AB282B508 /* AudioTimelineView.swift */; };
 		AD0D86723D752DBF0FE0070A /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6414026FB92981C959A904B8 /* Settings.swift */; };
@@ -45,6 +46,7 @@
 		7EC218D121932E0C77CFBB8B /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		7F008EBEE8F5686C5E63090D /* CacaoPhotoSlideApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacaoPhotoSlideApp.swift; sourceTree = "<group>"; };
 		8258F6F9D29CF3AE4E42B401 /* MusicTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicTimeline.swift; sourceTree = "<group>"; };
+		92F591028CABB98E5E9C9B5B /* PhotoOverrideSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoOverrideSheet.swift; sourceTree = "<group>"; };
 		9BEB3B1524895721496024DD /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
 		9C2B1FDD3452DC9AB282B508 /* AudioTimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTimelineView.swift; sourceTree = "<group>"; };
 		BC6164C922D821BA7124C0F2 /* SlideshowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlideshowController.swift; sourceTree = "<group>"; };
@@ -69,6 +71,7 @@
 				DC2A3E5B6AF0798C173BE6A7 /* ClipRangeView.swift */,
 				BDAF6150D4B712E50F6B8100 /* ContentView.swift */,
 				D136F9E179AFD6CBD5581C8B /* ExportSheet.swift */,
+				92F591028CABB98E5E9C9B5B /* PhotoOverrideSheet.swift */,
 				DDAF3A1E9CD442999A40A923 /* PhotoViewerView.swift */,
 				3A546283504F976989184500 /* SlideshowView.swift */,
 				4EDFFBB724DB24E96C04A2C5 /* TitlesSheet.swift */,
@@ -208,6 +211,7 @@
 				1AF40CB771B20E8A6E6C4C70 /* ImageLoader.swift in Sources */,
 				8B8000EA9B020DDE8A10CFA3 /* MusicTimeline.swift in Sources */,
 				31D420C7C4CDA3A2566419E8 /* PhotoLibrary.swift in Sources */,
+				A68BB9E03115D1E309A6AFB4 /* PhotoOverrideSheet.swift in Sources */,
 				4FCE9979285BA0D658EBD83E /* PhotoViewerView.swift in Sources */,
 				A1579B999292194CC62DFF03 /* Project.swift in Sources */,
 				AD0D86723D752DBF0FE0070A /* Settings.swift in Sources */,

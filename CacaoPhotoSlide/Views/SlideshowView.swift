@@ -35,7 +35,7 @@ struct SlideshowView: View {
     // MARK: 1 枚ぶんの描画
 
     private func layer(_ slide: Slide, size: CGSize, date: Date, fx: LayerFX) -> some View {
-        let kenBurns = controller.settings.transition == .kenBurns
+        let kenBurns = controller.transition(of: slide) == .kenBurns
         let p = kenBurns ? controller.motionProgress(slide, at: date) : 0
         let s = kenBurns ? slide.motion.scale(p) : 1
         let o = kenBurns ? slide.motion.offset(p) : .zero
@@ -52,11 +52,11 @@ struct SlideshowView: View {
     }
 
     private func incoming(_ t: Double, width: CGFloat) -> LayerFX {
-        TransitionMath.incoming(controller.settings.transition, t: t, width: width)
+        TransitionMath.incoming(controller.current.map { controller.transition(of: $0) } ?? controller.settings.transition, t: t, width: width)
     }
 
     private func outgoing(_ t: Double, width: CGFloat) -> LayerFX {
-        TransitionMath.outgoing(controller.settings.transition, t: t, width: width)
+        TransitionMath.outgoing(controller.current.map { controller.transition(of: $0) } ?? controller.settings.transition, t: t, width: width)
     }
 
     // MARK: 一時停止と枚数の表示
