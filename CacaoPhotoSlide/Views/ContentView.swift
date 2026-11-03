@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var targeted = false
-    @AppStorage("previewHeight") private var previewHeight = 300.0   // プレビューの画面の高さ（境目をドラッグして変える）
     @State private var splitStart: Double?
     @State private var dropTarget: Int?      // 並べ替えのドラッグで、差し込み先に光らせる写真
 
@@ -34,6 +33,7 @@ struct ContentView: View {
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
         }
+        .onAppear { model.installSpaceKey() }
         .onChange(of: model.tab) { old, new in
             // プレビューのタブを離れたら、そこで流していたものは止める
             if old == .preview, new != .preview, model.isPreviewing { model.stopSlideshow() }
@@ -46,6 +46,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: Bindable(model).showOverrides) {
             PhotoOverrideSheet().environment(model)
+        }
+        .sheet(isPresented: Bindable(model).showColorCard) {
+            ColorCardSheet().environment(model)
         }
         .sheet(isPresented: Bindable(model).showTitles) {
             TitlesSheet().environment(model)
@@ -283,7 +286,7 @@ struct ContentView: View {
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .frame(maxWidth: .infinity)
-            .frame(height: CGFloat(previewHeight))
+            .frame(height: CGFloat(model.previewHeight))
             splitter
             transport
             AudioTimelineView().environment(model)
@@ -301,8 +304,8 @@ struct ContentView: View {
         .gesture(
             DragGesture(minimumDistance: 1, coordinateSpace: .global)
                 .onChanged { v in
-                    if splitStart == nil { splitStart = previewHeight }
-                    previewHeight = min(900, max(120, (splitStart ?? previewHeight) + v.translation.height))
+                    if splitStart == nil { splitStart = model.previewHeight }
+                    model.previewHeight = min(900, max(120, (splitStart ?? model.previewHeight) + v.translation.height))
                 }
                 .onEnded { _ in splitStart = nil }
         )
@@ -321,12 +324,10 @@ struct ContentView: View {
                     Label(c.isPaused ? "再開" : "一時停止", systemImage: c.isPaused ? "play.fill" : "pause.fill")
                         .frame(width: 80)
                 }
-                .keyboardShortcut(.space, modifiers: [])
             } else {
                 Button { model.startPreview(at: model.timing.index(at: model.playhead)) } label: {
                     Label("再生", systemImage: "play.fill").frame(width: 80)
                 }
-                .keyboardShortcut(.space, modifiers: [])
                 .disabled(model.photos.isEmpty || model.isScanning || model.isShowing)
             }
             Button { model.stopSlideshow() } label: { Image(systemName: "stop.fill") }
@@ -533,8 +534,8 @@ private struct PreviewStill: View {
                     .resizable()
                     .aspectRatio(contentMode: fit == .fill ? .fill : .fit)
             }
-            // 出し始めの 0.5 秒のフェードを待たずに見えるよう、少し進めた時刻で描く
-            TitleOverlay(items: model.titles, time: model.playhead + TitleMath.fade)
+            // 動きは見せず、再生ヘッドの時刻に出ているタイトルだけ
+            TitleOverlay(items: model.titles, time: model.playhead, settled: true)
         }
         .clipped()
         .task(id: url) {

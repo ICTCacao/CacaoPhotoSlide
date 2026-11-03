@@ -7,7 +7,7 @@ extension TrackColors {
 }
 
 /// DaVinci Resolve 風のタイムライン。上からルーラー・写真（V1）・タイトル（T）・音声（A）の各トラック、
-/// 赤い再生ヘッド（ルーラーと写真の帯をドラッグでスクラブ、クリックでそこから再生）、横の拡大縮小。音声ファイルは落とした位置に置ける
+/// 赤い再生ヘッド（ルーラーのクリック・ドラッグ、写真のクリックで動かす。再生は ▶ ボタンか Space）。写真はドラッグで並べ替え、横の拡大縮小。音声ファイルは落とした位置に置ける
 struct AudioTimelineView: View {
     @Environment(AppModel.self) private var model
     @State private var targeted = false
@@ -16,6 +16,7 @@ struct AudioTimelineView: View {
     @State private var magnifyStart: Double?
     @State private var edgeDrag: (key: String, base: Double, pps: CGFloat)?
     @State private var moveDrag: (id: UUID, base: Double, pps: CGFloat)?
+    @State private var reorder: (from: Int, to: Int)?      // 写真をドラッグして並べ替え中（流す写真の中の番号）
     @State private var hoverTime: TimeInterval = 0    // 右クリックの対象を決めるための、マウスのある時刻
 
     private let labelWidth: CGFloat = 34
@@ -52,6 +53,11 @@ struct AudioTimelineView: View {
                             }
                             .onEnded { _ in magnifyStart = nil }
                     )
+                .task {
+                    // 書類を開き直したとき、拡大していれば再生ヘッドが見える位置まで送る
+                    try? await Task.sleep(for: .milliseconds(200))
+                    if model.timelineZoom > 1.01 { proxy.scrollTo("playhead", anchor: .center) }
+                }
                 }
                 .background(GeometryReader { g in
                     Color.clear
@@ -111,23 +117,7 @@ struct AudioTimelineView: View {
                 .frame(width: w)
                 .offset(y: laneY(emptyLane) + 5)
                 .allowsHitTesting(false)
-            // ルーラーと写真の帯: ドラッグで再生ヘッドを動かす（スクラブ）。クリックなら、そこから再生
-            Color.clear
-                .frame(width: w, height: scrubHeight)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { v in model.scrub(to: Double(v.location.x / w) * total) }
-                        .onEnded { v in
-                            guard hypot(v.translation.width, v.translation.height) < 3, !model.isPreviewing, !model.isShowing else { return }
-                            model.startPreview(at: timing.index(at: Double(v.location.x / w) * total))
-                        }
-                )
-                .help("ドラッグで再生ヘッドを動かす。クリックでそこから再生")
-                .onContinuousHover { phase in
-                    if case .active(let p) = phase { hoverTime = Double(p.x / w) * total }
-                }
-                .contextMenu { photoMenu(timing: timing, time: hoverTime) }
+            rulerAndBand(width: w, total: total, timing: timing)
             durationHandles(width: w, total: total, timing: timing)
             playhead(width: w, total: total, proxy: proxy)
         }
@@ -137,6 +127,11 @@ struct AudioTimelineView: View {
             let lane = min(model.trackCount - 1, max(0, Int((location.y - clipTop) / laneStep)))
             return handleDrop(providers, at: max(0, location.x / w) * total, track: lane)
         }
+    }
+
+    private func addTitleHere(_ time: TimeInterval) {
+        model.addTitle(at: time)
+        model.showTitles = true       // 足したら、そのまま文字を決められるように
     }
 
     // MARK: 写真の右クリック（「写真」のタブのサムネイルと同じメニュー）
@@ -157,7 +152,72 @@ struct AudioTimelineView: View {
             Button("最後へ移動") { model.moveToEdge(targets, front: false) }
             Divider()
             Button("Finder で表示") { NSWorkspace.shared.activateFileViewerSelecting([model.photos[i]]) }
+            Divider()
+            Button("ここに単色画像を足す…") { model.scrub(to: time); model.showColorCard = true }
+            Button("ここにタイトルを足す…") { addTitleHere(time) }
         }
+    }
+
+    // MARK: ルーラー（スクラブ）と写真の帯（クリックで表示、ドラッグで並べ替え）
+
+    private func rulerAndBand(width w: CGFloat, total: TimeInterval, timing: SlideTiming) -> some View {
+        let bounds = timing.bounds
+        func time(_ x: CGFloat) -> TimeInterval { Double(max(0, min(x, w)) / w) * total }
+        return ZStack(alignment: .topLeading) {
+            // ルーラー: ドラッグで再生ヘッドを動かす（表示だけ。再生は ▶ ボタンか Space）
+            Color.clear
+                .frame(width: w, height: rulerHeight)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { v in model.scrub(to: time(v.location.x)) }
+                )
+                .help("クリック・ドラッグで再生ヘッドを動かす（再生は ▶ ボタンか Space）")
+            // 写真の帯: クリックでその位置を表示、ドラッグで写真の順番を変える
+            Color.clear
+                .frame(width: w, height: bandHeight)
+                .contentShape(Rectangle())
+                .offset(y: rulerHeight)
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { v in
+                            if model.activeController != nil {          // 流している間は並べ替えず、スクラブだけ
+                                model.scrub(to: time(v.location.x)); return
+                            }
+                            guard hypot(v.translation.width, v.translation.height) >= 4 else { return }
+                            reorder = (timing.index(at: time(v.startLocation.x)), timing.index(at: time(v.location.x)))
+                        }
+                        .onEnded { v in
+                            let r = reorder
+                            reorder = nil
+                            if let r, r.from != r.to {
+                                model.moveTimelinePhoto(from: r.from, to: r.to)
+                            } else if hypot(v.translation.width, v.translation.height) < 4 {
+                                model.scrub(to: time(v.location.x))
+                            }
+                        }
+                )
+                .help("クリックでその写真を表示。ドラッグで順番を変える")
+            if let r = reorder, bounds.indices.contains(r.from + 1), bounds.indices.contains(r.to + 1) {
+                let x0 = CGFloat(bounds[r.from] / total) * w
+                let x1 = CGFloat(bounds[r.from + 1] / total) * w
+                Rectangle().fill(Color.accentColor.opacity(0.25))
+                    .overlay(Rectangle().strokeBorder(Color.accentColor, lineWidth: 2))
+                    .frame(width: max(6, x1 - x0), height: bandHeight)
+                    .offset(x: x0, y: rulerHeight)
+                    .allowsHitTesting(false)
+                // 落とす位置（後ろへ動かすなら相手の後ろ、前へなら相手の手前）
+                let lx = CGFloat((r.to > r.from ? bounds[r.to + 1] : bounds[r.to]) / total) * w
+                Rectangle().fill(Color.accentColor)
+                    .frame(width: 3, height: bandHeight + 8)
+                    .offset(x: max(0, lx - 1.5), y: rulerHeight - 4)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onContinuousHover { phase in
+            if case .active(let p) = phase { hoverTime = time(p.x) }
+        }
+        .contextMenu { photoMenu(timing: timing, time: hoverTime) }
     }
 
     // MARK: 再生ヘッド
@@ -181,8 +241,12 @@ struct AudioTimelineView: View {
                 .allowsHitTesting(false)
             }
         } else {
-            playheadMark(x: CGFloat(min(model.playhead, total) / total) * w, width: w)
-                .allowsHitTesting(false)
+            ZStack(alignment: .topLeading) {
+                playheadMark(x: CGFloat(min(model.playhead, total) / total) * w, width: w)
+                Color.clear.frame(width: 2, height: 2).id("playhead")
+                    .offset(x: CGFloat(min(model.playhead, total) / total) * w)
+            }
+            .allowsHitTesting(false)
         }
     }
 
@@ -238,6 +302,18 @@ struct AudioTimelineView: View {
 
     private func titleTrack(width w: CGFloat, total: TimeInterval) -> some View {
         ZStack(alignment: .topLeading) {
+            // タイトルの段の何もないところを右クリックで、その位置にタイトルを足せる
+            Color.clear
+                .frame(width: w, height: CGFloat(titleRows) * titleStep)
+                .contentShape(Rectangle())
+                .offset(y: titleTop)
+                .onContinuousHover { phase in
+                    if case .active(let p) = phase { hoverTime = Double(p.x / w) * total }
+                }
+                .contextMenu {
+                    Button("ここにタイトルを足す…") { addTitleHere(hoverTime) }
+                    Button("再生ヘッドの位置にタイトルを足す…") { addTitleHere(model.playhead) }
+                }
             if model.titles.isEmpty {
                 RoundedRectangle(cornerRadius: 4)
                     .strokeBorder(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
@@ -249,7 +325,7 @@ struct AudioTimelineView: View {
                     .allowsHitTesting(false)
                 Color.clear.frame(width: w - 8, height: titleLane).contentShape(Rectangle())
                     .offset(x: 4, y: titleTop)
-                    .onTapGesture { model.addTitle(at: model.playhead) }
+                    .onTapGesture { addTitleHere(model.playhead) }
             }
             ForEach(model.titles) { item in titleBar(item, width: w, total: total) }
         }
@@ -292,7 +368,19 @@ struct AudioTimelineView: View {
                 }
                 .onEnded { _ in moveDrag = nil }
         )
-        .onTapGesture(count: 2) { model.showTitles = true }
+        .onTapGesture(count: 2) { model.selectedTitleIDs = [id]; model.showTitles = true }
+        .contextMenu {
+            Button("編集…") { model.selectedTitleIDs = [id]; model.showTitles = true }
+            Button("複製") {
+                var copy = item
+                copy.id = UUID()
+                copy.start = item.start + max(1, item.duration)
+                model.titles.append(copy)
+                model.selectedTitleIDs = [copy.id]
+            }
+            Divider()
+            Button("削除", role: .destructive) { model.titles.removeAll { $0.id == id } }
+        }
         .help("「\(item.text)」　ドラッグで出す時刻、右端で長さ。ダブルクリックで編集")
     }
 
@@ -364,8 +452,16 @@ struct AudioTimelineView: View {
                 Button("全体") { model.timelineZoom = 1 }
                     .controlSize(.small).disabled(model.timelineZoom <= 1.01)
             }
-            Button("音声を追加…") { model.chooseMusic() }
-                .controlSize(.small)
+            Menu {
+                Button("タイトル（再生ヘッドの位置）") { addTitleHere(model.playhead) }
+                Button("単色画像…") { model.showColorCard = true }
+                Divider()
+                Button("音声…") { model.chooseMusic() }
+            } label: {
+                Label("追加", systemImage: "plus")
+            }
+            .controlSize(.small)
+            .fixedSize()
         }
         .font(.callout)
     }

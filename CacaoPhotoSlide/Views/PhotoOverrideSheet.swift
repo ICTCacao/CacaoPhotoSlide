@@ -10,12 +10,14 @@ struct PhotoOverrideSheet: View {
     @State private var dwell: Double = 5
     @State private var useTransition = false
     @State private var transition: Transition = .crossfade
+    @State private var image: CGImage?
     @State private var useFit = false
     @State private var fit: FitMode = .fit
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title).font(.headline).lineLimit(1).truncationMode(.middle)
+            photoPreview
             thumbnails
             Form {
                 LabeledContent {
@@ -69,7 +71,7 @@ struct PhotoOverrideSheet: View {
             }
         }
         .padding(18)
-        .frame(width: 480)
+        .frame(width: 520)
         .onAppear(perform: load)
     }
 
@@ -95,6 +97,44 @@ struct PhotoOverrideSheet: View {
                 Text("ほか \(urls.count - shown.count) 枚").font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
+        }
+    }
+
+    /// 先頭の写真を大きく。複数選んでいるときは、小さいサムネイルも並べる
+    private var photoPreview: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                Color.black
+                if let image {
+                    Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .frame(height: 220)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            if indices.count > 1 {
+                HStack(spacing: 4) {
+                    ForEach(indices.prefix(12), id: \.self) { i in
+                        if model.photos.indices.contains(i), let cg = model.thumbnails[model.photos[i]] {
+                            Image(decorative: cg, scale: 1)
+                                .resizable().aspectRatio(contentMode: .fill)
+                                .frame(width: 36, height: 36).clipShape(RoundedRectangle(cornerRadius: 4))
+                        } else {
+                            RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.2)).frame(width: 36, height: 36)
+                        }
+                    }
+                    if indices.count > 12 {
+                        Text("ほか \(indices.count - 12) 枚").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+            }
+        }
+        .task(id: indices.first) {
+            guard let i = indices.first, model.photos.indices.contains(i) else { return }
+            let url = model.photos[i]
+            image = await Task.detached(priority: .userInitiated) { ImageLoader.decode(url, maxPixel: 900) }.value
         }
     }
 

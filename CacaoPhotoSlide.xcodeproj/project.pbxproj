@@ -13,6 +13,7 @@
 		2EE3610FE4906DF787AF6234 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A4322F15969DC5F1EC98CF /* AppModel.swift */; };
 		31D420C7C4CDA3A2566419E8 /* PhotoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE899BB58EFE0A1248A71CAD /* PhotoLibrary.swift */; };
 		370D19BF819C05790D1D8AD8 /* TitlesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EDFFBB724DB24E96C04A2C5 /* TitlesSheet.swift */; };
+		3A13D700D2BF8C75EDBC3545 /* ColorCardSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08D92C7CEB1BAD1A3AA21A7B /* ColorCardSheet.swift */; };
 		4FCE9979285BA0D658EBD83E /* PhotoViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDAF3A1E9CD442999A40A923 /* PhotoViewerView.swift */; };
 		6C4376EE1F57BF3E9372DDDE /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 770C3664768A56B38CB8B69C /* InfoPlist.strings */; };
 		78DF2351C5B1BADC0C7695EA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F2BCF1DE836E5BBC0E3D2747 /* Assets.xcassets */; };
@@ -34,6 +35,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		08D92C7CEB1BAD1A3AA21A7B /* ColorCardSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorCardSheet.swift; sourceTree = "<group>"; };
 		19FEE8B5E66F5FC36CC284E7 /* SlideshowWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlideshowWindow.swift; sourceTree = "<group>"; };
 		1A24501D9D1A350E983AC817 /* ImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageLoader.swift; sourceTree = "<group>"; };
 		358FBEF149D9655617426A37 /* VideoExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoExporter.swift; sourceTree = "<group>"; };
@@ -69,6 +71,7 @@
 			children = (
 				9C2B1FDD3452DC9AB282B508 /* AudioTimelineView.swift */,
 				DC2A3E5B6AF0798C173BE6A7 /* ClipRangeView.swift */,
+				08D92C7CEB1BAD1A3AA21A7B /* ColorCardSheet.swift */,
 				BDAF6150D4B712E50F6B8100 /* ContentView.swift */,
 				D136F9E179AFD6CBD5581C8B /* ExportSheet.swift */,
 				92F591028CABB98E5E9C9B5B /* PhotoOverrideSheet.swift */,
@@ -206,6 +209,7 @@
 				AC54920A238F1657FC7AC6C3 /* AudioTimelineView.swift in Sources */,
 				EBA0F9D9D5F66121466D1D57 /* CacaoPhotoSlideApp.swift in Sources */,
 				BE697E64D784410B4E305EC3 /* ClipRangeView.swift in Sources */,
+				3A13D700D2BF8C75EDBC3545 /* ColorCardSheet.swift in Sources */,
 				A92848AC1CC6654D204C438C /* ContentView.swift in Sources */,
 				D15A990105E38EEBEB3D2E29 /* ExportSheet.swift in Sources */,
 				1AF40CB771B20E8A6E6C4C70 /* ImageLoader.swift in Sources */,

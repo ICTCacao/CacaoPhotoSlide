@@ -29,6 +29,7 @@ final class AppModel {
     var isPreviewing = false          // プレビューのタブの中で流している
     var playhead: TimeInterval = 0    // タイムラインの再生ヘッド（流していないときの位置。静止画のプレビューもここ）
     var timelineZoom: Double = 1      // タイムラインの横の拡大率（1 で全体が収まる）
+    var previewHeight: Double = 300 { didSet { ud.set(previewHeight, forKey: "previewHeight") } }   // プレビューの画面の高さ（境目をドラッグして変える）
     var tab: MainTab = .photos
 
     /// 選んだ写真。1 枚なら「そこから開始」、2 枚以上なら「その写真だけを流す」
@@ -67,6 +68,8 @@ final class AppModel {
         didSet { ud.set(try? JSONEncoder().encode(overrides), forKey: Prefs.overrides) }
     }
     var showOverrides = false
+    var showColorCard = false
+    var selectedTitleIDs: Set<UUID> = []   // タイトルの編集画面で選んでいるタイトル（プレビューに出す）
     var transitionDuration: Double { didSet { ud.set(transitionDuration, forKey: Prefs.transitionDuration) } }
     var order: PhotoOrder {
         didSet {
@@ -107,6 +110,7 @@ final class AppModel {
         transition = Transition(rawValue: ud.string(forKey: Prefs.transition) ?? "") ?? .kenBurns
         transitionDuration = ud.object(forKey: Prefs.transitionDuration) as? Double ?? 1.5
         endFade = ud.object(forKey: Prefs.endFade) as? Double ?? 0
+        previewHeight = ud.object(forKey: "previewHeight") as? Double ?? 300
         if let d = ud.data(forKey: Prefs.overrides), let o = try? JSONDecoder().decode([String: PhotoOverride].self, from: d) { overrides = o }
         if let d = ud.data(forKey: Prefs.titles), let t = try? JSONDecoder().decode([TitleItem].self, from: d) { titles = t }
         order = PhotoOrder(rawValue: ud.string(forKey: Prefs.order) ?? "") ?? .name
@@ -420,12 +424,67 @@ final class AppModel {
         setOverride([i], dwell: abs(newDwell - dwell) < 0.001 ? nil : newDwell, transition: cur?.transition, fit: cur?.fit)
     }
 
+    /// タイムラインで写真をドラッグして並べ替える（流す写真の k0 番目を k1 番目の位置へ）。再生ヘッドは動かした写真の頭へ
+    func moveTimelinePhoto(from k0: Int, to k1: Int) {
+        guard let i = photoIndex(playIndex: k0), let j = photoIndex(playIndex: k1), i != j else { return }
+        let url = photos[i]
+        movePhotos([i], to: j)
+        if let nk = playURLs.firstIndex(of: url) { playhead = timing.starts[nk] }
+    }
+
     /// 再生ヘッドの位置にタイトルを足す
     func addTitle(at time: TimeInterval) {
         var item = TitleItem()
         item.start = (time * 10).rounded() / 10
         if !titles.isEmpty { item.anchor = .top; item.size = 0.05 }
         titles.append(item)
+        selectedTitleIDs = [item.id]
+    }
+
+    // MARK: 単色画像
+
+    /// 単色画像のファイルを置く場所（普通の写真として扱えるよう、実ファイルにする）
+    private static var colorCardDirectory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("CacaoPhotoSlide/ColorCards", isDirectory: true)
+    }
+
+    /// 単色画像を、再生ヘッドの位置（写真の途中なら、その写真の後ろ）に足す
+    func addColorCard(_ color: NSColor, dwell cardDwell: TimeInterval) {
+        let c = color.usingColorSpace(.sRGB) ?? .black
+        let hex = String(format: "%02X%02X%02X", Int((c.redComponent * 255).rounded()),
+                         Int((c.greenComponent * 255).rounded()), Int((c.blueComponent * 255).rounded()))
+        let dir = Self.colorCardDirectory
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("単色-\(hex)-\(UUID().uuidString.prefix(6)).png")
+        guard let ctx = CGContext(data: nil, width: 1920, height: 1080, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+        ctx.setFillColor(red: c.redComponent, green: c.greenComponent, blue: c.blueComponent, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        guard let img = ctx.makeImage(),
+              let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(dest, img, nil)
+        guard CGImageDestinationFinalize(dest) else { return }
+
+        // 入れる位置（photos の番号）
+        var p = photos.count
+        let urls = playURLs
+        if !urls.isEmpty {
+            let tm = timing
+            let k = tm.index(at: playhead)
+            if let base = photoIndex(playIndex: k) { p = playhead <= tm.starts[k] + 0.05 ? base : base + 1 }
+        }
+        selection = []
+        anchor = nil
+        photos.insert(url, at: min(max(0, p), photos.count))
+        sources.append(url)                       // 読み直しても残るように
+        ud.set(sources.map(\.path), forKey: Prefs.lastSources)
+        if order != .manual { order = .manual }
+        manualOrder = photos.map(\.path)
+        if abs(cardDwell - dwell) > 0.001 { overrides[url.path] = PhotoOverride(dwell: cardDwell, transition: nil) }
+        message = nil
     }
 
     // MARK: 写真ごとの設定
@@ -611,6 +670,7 @@ final class AppModel {
         f.endFade = endFade
         f.titles = titles
         f.overrides = overrides.filter { !$0.value.isEmpty }
+        f.view = ViewState(tab: tab.rawValue, timelineZoom: timelineZoom, previewHeight: previewHeight, playhead: playhead)
         f.order = order.rawValue
         f.loop = loop
         f.recursive = recursive
@@ -650,6 +710,12 @@ final class AppModel {
             transitionDuration = f.transitionDuration
             endFade = f.endFade
             titles = f.titles
+            if let v = f.view {                      // 画面の状態を再現
+                tab = MainTab(rawValue: v.tab) ?? .photos
+                timelineZoom = min(24, max(1, v.timelineZoom))
+                previewHeight = min(900, max(120, v.previewHeight))
+                playhead = max(0, v.playhead)
+            }
             overrides = Dictionary(f.overrides.map { ($0.key.hasPrefix("/") ? $0.key : url.appendingPathComponent($0.key).path, $0.value) },
                                    uniquingKeysWith: { a, _ in a })
             loop = f.loop
@@ -827,6 +893,27 @@ final class AppModel {
         activeController = controller
         isShowing = true
         controller.start(at: first)
+    }
+
+    private var spaceMonitor: Any?
+
+    /// タイムラインのタブで Space: 流している間は一時停止／再開、止まっているときは再生ヘッドの位置から再生。
+    /// 文字を入力している最中と、シート（編集画面）が開いている間は、Space をそのまま渡す
+    func installSpaceKey() {
+        guard spaceMonitor == nil else { return }
+        spaceMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.keyCode == 49,
+                  event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+                  tab == .preview, !isShowing, !photos.isEmpty,
+                  let window = event.window, window.attachedSheet == nil, window === NSApp.mainWindow || window.isKeyWindow,
+                  !(window.firstResponder is NSText) else { return event }
+            if isPreviewing, let c = activeController {
+                c.togglePause()
+            } else if !isScanning {
+                startPreview(at: timing.index(at: playhead))
+            }
+            return nil
+        }
     }
 
     func stopSlideshow() {

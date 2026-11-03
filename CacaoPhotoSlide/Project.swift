@@ -57,6 +57,14 @@ struct MusicClip: Identifiable, Codable, Equatable {
     }
 }
 
+/// 画面の状態（書類を開き直したときに再現する）
+struct ViewState: Codable, Equatable {
+    var tab = MainTab.photos.rawValue
+    var timelineZoom: Double = 1       // タイムラインの横の拡大率
+    var previewHeight: Double = 300    // プレビューの画面の高さ
+    var playhead: Double = 0           // 再生ヘッドの位置（秒）
+}
+
 /// .cpsd の中の project.json
 struct ProjectFile: Codable {
     var version = 1
@@ -77,6 +85,7 @@ struct ProjectFile: Codable {
     var endFade: Double = 0           // 最後の写真のフェードアウト（秒、0 でなし）
     var titles: [TitleItem] = []      // 画面に重ねる文字
     var overrides: [String: PhotoOverride] = [:]   // 写真ごとの表示時間・切り替え（写真入りなら photos/ の相対パスがキー）
+    var view: ViewState?              // 画面の状態（タブ・タイムラインの拡大・プレビューの高さ・再生ヘッド）
     var manualOrder: [String] = []    // 順番が「手動」のときの並び（写真入りなら photos/ の相対パス）
 
     init() {}
@@ -102,6 +111,7 @@ struct ProjectFile: Codable {
         endFade = try c.decodeIfPresent(Double.self, forKey: .endFade) ?? 0
         titles = try c.decodeIfPresent([TitleItem].self, forKey: .titles) ?? []
         overrides = try c.decodeIfPresent([String: PhotoOverride].self, forKey: .overrides) ?? [:]
+        view = try c.decodeIfPresent(ViewState.self, forKey: .view)
         manualOrder = try c.decodeIfPresent([String].self, forKey: .manualOrder) ?? []
     }
 }
