@@ -267,12 +267,17 @@ enum VideoExporter {
                                          fx: TransitionMath.outgoing(settings.transition, t: eased, width: size.width)))
             }
             if let cur = image(k) {
-                var fx = TransitionMath.incoming(settings.transition, t: eased, width: size.width)
-                let end = Double(n) * dwell
-                if t > end, tr > 0 { fx.opacity *= max(0, 1 - (t - end) / tr) }   // 最後は黒へ
+                let fx = TransitionMath.incoming(settings.transition, t: eased, width: size.width)
                 let p = min(1, max(0, (t - start) / (dwell + tr)))
                 layers.append(FrameLayer(image: cur, motion: motions[k], motionProgress: p, fx: fx))
             }
+
+            // 最後の写真は、終わる endFade 秒前から黒へ（0 のときは切り替えの長さぶん）
+            let lastTotal = dwell + tr
+            let blackout = k == n - 1
+                ? TransitionMath.endFadeAlpha(elapsed: t - Double(n - 1) * dwell, total: lastTotal,
+                                              fade: min(lastTotal, settings.endFade > 0 ? settings.endFade : tr))
+                : 0
 
             while !input.isReadyForMoreMediaData { usleep(2000) }
             guard let pool = adaptor.pixelBufferPool else { throw ExportError.pixelBuffer }
@@ -282,7 +287,8 @@ enum VideoExporter {
             CVPixelBufferLockBaseAddress(buffer, [])
             if let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: w, height: h, bitsPerComponent: 8,
                                    bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: colorSpace, bitmapInfo: bitmapInfo) {
-                FrameRenderer.draw(layers, in: ctx, size: size, transition: settings.transition, fit: settings.fit)
+                FrameRenderer.draw(layers, in: ctx, size: size, transition: settings.transition, fit: settings.fit,
+                                   titles: settings.titles, time: t, blackout: blackout)
             }
             CVPixelBufferUnlockBaseAddress(buffer, [])
             if !adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(f), timescale: CMTimeScale(fps))) {

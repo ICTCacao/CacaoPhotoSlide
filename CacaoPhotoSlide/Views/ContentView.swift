@@ -4,39 +4,46 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var targeted = false
-    @State private var lowerHeight: CGFloat = 0
     @State private var dropTarget: Int?      // 並べ替えのドラッグで、差し込み先に光らせる写真
 
-    private struct LowerHeightKey: PreferenceKey {
-        static var defaultValue: CGFloat = 0
-        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-    }
-
     var body: some View {
-        // 写真の欄は、窓の高さから下の部分（タイムライン・設定・ボタン）を引いた分。入り切らなければ全体がスクロールする
-        GeometryReader { geo in
-            ScrollView(.vertical) {
-                VStack(spacing: 14) {
-                    dropZone
-                        .frame(height: max(200, geo.size.height - 36 - 14 - lowerHeight))
-                    VStack(spacing: 14) {
-                        AudioTimelineView().environment(model)
-                        settings(Bindable(model))
-                        footer
-                    }
-                    .background(GeometryReader { g in
-                        Color.clear.preference(key: LowerHeightKey.self, value: g.size.height)
-                    })
-                }
-                .padding(18)
+        VStack(spacing: 0) {
+            Picker("", selection: Bindable(model).tab) {
+                ForEach(MainTab.allCases) { Text($0.label).tag($0) }
             }
-            .onPreferenceChange(LowerHeightKey.self) { lowerHeight = $0 }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 340)
+            .padding(.top, 14)
+            Group {
+                switch model.tab {
+                case .photos:
+                    dropZone
+                        .padding(18)
+                case .preview:
+                    ScrollView(.vertical) { previewTab.padding(18) }
+                case .settings:
+                    ScrollView(.vertical) { settings(Bindable(model)).padding(18) }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+            footer
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+        }
+        .onChange(of: model.tab) { old, new in
+            // プレビューのタブを離れたら、そこで流していたものは止める
+            if old == .preview, new != .preview, model.isPreviewing { model.stopSlideshow() }
         }
         .navigationTitle(model.documentTitle)
         .navigationSubtitle(model.documentURL == nil ? "" : "CacaoPhotoSlide 書類")
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in handleDrop(providers) }
         .sheet(isPresented: Bindable(model).showExport) {
             ExportSheet().environment(model)
+        }
+        .sheet(isPresented: Bindable(model).showTitles) {
+            TitlesSheet().environment(model)
         }
         .sheet(isPresented: Binding(
             get: { model.viewerIndex != nil },
@@ -220,6 +227,67 @@ struct ContentView: View {
         return "\(names[0]) ほか \(names.count - 1) 件"
     }
 
+    // MARK: プレビュー
+
+    private var previewTab: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                Color.black
+                if model.isPreviewing, let c = model.activeController {
+                    SlideshowView(controller: c)
+                } else {
+                    PreviewStill()
+                    if !model.photos.isEmpty && !model.isScanning {
+                        Button {
+                            model.startPreview()
+                        } label: {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 64))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .shadow(radius: 6)
+                        }
+                        .buttonStyle(.plain)
+                        .help("ここで流してみる（音声も鳴ります）")
+                    } else {
+                        Text("「写真」のタブで写真を開いてください").foregroundStyle(.white.opacity(0.7))
+                    }
+                }
+            }
+            .aspectRatio(16.0 / 9.0, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            transport
+            AudioTimelineView().environment(model)
+        }
+    }
+
+    private var transport: some View {
+        HStack(spacing: 10) {
+            if model.isPreviewing, let c = model.activeController {
+                Button { c.previousSlide() } label: { Image(systemName: "backward.fill") }
+                    .help("前の写真")
+                Button { c.togglePause() } label: {
+                    Label(c.isPaused ? "再開" : "一時停止", systemImage: c.isPaused ? "play.fill" : "pause.fill")
+                        .frame(width: 80)
+                }
+                Button { c.next() } label: { Image(systemName: "forward.fill") }
+                    .help("次の写真")
+                Button { model.stopSlideshow() } label: { Label("停止", systemImage: "stop.fill") }
+            } else {
+                Button { model.startPreview() } label: { Label("ここで再生", systemImage: "play.fill") }
+                    .disabled(model.photos.isEmpty || model.isScanning || model.isShowing)
+            }
+            Spacer()
+            Text("\(model.playCount) 枚　所要 \(Self.duration(model.totalDuration))")
+                .font(.callout).foregroundStyle(.secondary).monospacedDigit()
+        }
+    }
+
+    static func duration(_ t: TimeInterval) -> String {
+        let s = Int(t.rounded())
+        return s >= 60 ? "\(s / 60) 分 \(s % 60) 秒" : "\(s) 秒"
+    }
+
     // MARK: 設定
 
     private func settings(_ model: Bindable<AppModel>) -> some View {
@@ -250,6 +318,21 @@ struct ContentView: View {
                 }
             }
             .disabled(model.transition.wrappedValue == .none)
+            LabeledContent("最後のフェードアウト") {
+                HStack {
+                    Slider(value: model.endFade, in: 0...10, step: 0.5)
+                    Text(model.endFade.wrappedValue == 0 ? "なし" : Self.seconds(model.endFade.wrappedValue))
+                        .monospacedDigit().frame(width: 50, alignment: .trailing)
+                }
+            }
+            .help("最後の写真が終わる、この秒数前から黒へ。「繰り返す」がオンのときは画面ではかかりません")
+            LabeledContent("タイトルなど") {
+                HStack {
+                    Text(model.titles.wrappedValue.isEmpty ? "なし" : "\(model.titles.wrappedValue.count) 件")
+                        .foregroundStyle(.secondary)
+                    Button("編集…") { model.showTitles.wrappedValue = true }
+                }
+            }
             Picker("順番", selection: model.order) {
                 ForEach(PhotoOrder.allCases) { Text($0.label).tag($0) }
             }
@@ -271,7 +354,7 @@ struct ContentView: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .scrollDisabled(true)
-        .frame(height: 332)
+        .frame(height: 426)
     }
 
     static func seconds(_ v: Double) -> String {
@@ -300,7 +383,7 @@ struct ContentView: View {
             }
             .controlSize(.large)
             .disabled(model.photos.isEmpty || model.isScanning || model.isShowing)
-            if let c = model.activeController {
+            if model.isShowing, let c = model.activeController {
                 Button {
                     c.togglePause()
                 } label: {
@@ -352,5 +435,32 @@ struct ContentView: View {
             model.load(urls)
         }
         return true
+    }
+}
+
+/// プレビューで流していないときの静止画（選んだ写真か先頭の写真に、タイトルを重ねて）
+private struct PreviewStill: View {
+    @Environment(AppModel.self) private var model
+    @State private var image: CGImage?
+
+    private var url: URL? {
+        let i = model.selection.min() ?? 0
+        return model.photos.indices.contains(i) ? model.photos[i] : nil
+    }
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .aspectRatio(contentMode: model.fit == .fill ? .fill : .fit)
+            }
+            TitleOverlay(items: model.titles, time: nil)
+        }
+        .clipped()
+        .task(id: url) {
+            guard let url else { image = nil; return }
+            image = await Task.detached(priority: .userInitiated) { ImageLoader.decode(url, maxPixel: 1280) }.value
+        }
     }
 }

@@ -33,6 +33,14 @@ enum TransitionMath {
     }
 }
 
+extension TransitionMath {
+    /// 最後の写真の終わりの黒（0 → 1）。elapsed は最後の写真を出してからの秒、total はその写真が終わるまでの秒、fade は黒に向かう秒数
+    static func endFadeAlpha(elapsed: Double, total: Double, fade: Double) -> Double {
+        guard fade > 0 else { return 0 }
+        return min(1, max(0, 1 - (total - elapsed) / fade))
+    }
+}
+
 /// Core Graphics で 1 コマ描く（mp4 書き出し用。画面の SlideshowView と同じ並び順・同じ式）
 struct FrameLayer {
     let image: CGImage
@@ -42,7 +50,8 @@ struct FrameLayer {
 }
 
 enum FrameRenderer {
-    static func draw(_ layers: [FrameLayer], in ctx: CGContext, size: CGSize, transition: Transition, fit: FitMode) {
+    static func draw(_ layers: [FrameLayer], in ctx: CGContext, size: CGSize, transition: Transition, fit: FitMode,
+                     titles: [TitleItem] = [], time: Double = 0, blackout: Double = 0) {
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(origin: .zero, size: size))
         ctx.interpolationQuality = .high
@@ -62,6 +71,11 @@ enum FrameRenderer {
             ctx.scaleBy(x: s, y: s)
             ctx.draw(l.image, in: CGRect(x: -fw / 2, y: -fh / 2, width: fw, height: fh))
             ctx.restoreGState()
+        }
+        TitleRenderer.draw(titles, at: time, in: ctx, size: size)
+        if blackout > 0 {
+            ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: blackout))
+            ctx.fill(CGRect(origin: .zero, size: size))
         }
     }
 }

@@ -87,6 +87,11 @@ struct CacaoPhotoSlideApp: App {
                     .disabled(model.sources.isEmpty)
             }
             CommandMenu("スライドショー") {
+                ForEach(Array(MainTab.allCases.enumerated()), id: \.element) { i, t in
+                    Button("\(t.label)のタブ") { model.tab = t }
+                        .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
+                }
+                Divider()
                 Button("開始") { model.startSlideshow() }
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(model.photos.isEmpty || model.isShowing)

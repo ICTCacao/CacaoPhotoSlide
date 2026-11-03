@@ -18,6 +18,11 @@ struct SlideshowView: View {
                         }
                         layer(cur, size: size, date: date, fx: incoming(t, width: size.width))
                     }
+                    if !controller.settings.titles.isEmpty {
+                        TitleOverlay(items: controller.settings.titles, time: controller.timelineTime(at: date))
+                    }
+                    let black = controller.blackout(at: date)
+                    if black > 0 { Color.black.opacity(black) }
                     hud
                 }
                 .frame(width: size.width, height: size.height)

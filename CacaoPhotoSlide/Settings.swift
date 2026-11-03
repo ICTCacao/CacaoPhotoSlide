@@ -67,6 +67,8 @@ struct SlideshowSettings {
     var fit: FitMode
     var clips: [MusicClip] = []        // 音声のタイムライン
     var document: URL?                 // クリップの相対パスを解決するための書類の場所
+    var endFade: TimeInterval = 0      // 最後の写真を、終わるこの秒数前から黒へフェードアウト（0 なら画面ではなし、mp4 は切り替えの長さ）
+    var titles: [TitleItem] = []       // 画面に重ねる文字
 }
 
 enum Prefs {
@@ -75,6 +77,8 @@ enum Prefs {
     static let transitionDuration = "transitionDuration"
     static let order = "order"
     static let manualOrder = "manualOrder"
+    static let endFade = "endFade"
+    static let titles = "titles"
     static let loop = "loop"
     static let recursive = "recursive"
     static let fit = "fit"

@@ -2,6 +2,19 @@ import SwiftUI
 import AppKit
 import AVFoundation
 
+/// 窓の上のタブ
+enum MainTab: String, CaseIterable, Identifiable {
+    case photos, preview, settings
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .photos: return "写真"
+        case .preview: return "プレビュー"
+        case .settings: return "設定"
+        }
+    }
+}
+
 @Observable @MainActor
 final class AppModel {
     private let ud = UserDefaults.standard
@@ -12,7 +25,9 @@ final class AppModel {
     var removedPaths: Set<String> = []     // パネルで外した写真（流さず、書類にもコピーしない）
     var isScanning = false
     var message: String?
-    var isShowing = false
+    var isShowing = false             // 全画面（別ウインドウ）で流している
+    var isPreviewing = false          // プレビューのタブの中で流している
+    var tab: MainTab = .photos
 
     /// 選んだ写真。1 枚なら「そこから開始」、2 枚以上なら「その写真だけを流す」
     var selection: Set<Int> = []
@@ -40,6 +55,11 @@ final class AppModel {
 
     var dwell: Double { didSet { ud.set(dwell, forKey: Prefs.dwell) } }
     var transition: Transition { didSet { ud.set(transition.rawValue, forKey: Prefs.transition) } }
+    var endFade: Double { didSet { ud.set(endFade, forKey: Prefs.endFade) } }
+    var titles: [TitleItem] = [] {
+        didSet { ud.set(try? JSONEncoder().encode(titles), forKey: Prefs.titles) }
+    }
+    var showTitles = false
     var transitionDuration: Double { didSet { ud.set(transitionDuration, forKey: Prefs.transitionDuration) } }
     var order: PhotoOrder {
         didSet {
@@ -79,6 +99,8 @@ final class AppModel {
         dwell = ud.object(forKey: Prefs.dwell) as? Double ?? 5
         transition = Transition(rawValue: ud.string(forKey: Prefs.transition) ?? "") ?? .kenBurns
         transitionDuration = ud.object(forKey: Prefs.transitionDuration) as? Double ?? 1.5
+        endFade = ud.object(forKey: Prefs.endFade) as? Double ?? 0
+        if let d = ud.data(forKey: Prefs.titles), let t = try? JSONDecoder().decode([TitleItem].self, from: d) { titles = t }
         order = PhotoOrder(rawValue: ud.string(forKey: Prefs.order) ?? "") ?? .name
         manualOrder = ud.stringArray(forKey: Prefs.manualOrder) ?? []
         loop = ud.object(forKey: Prefs.loop) as? Bool ?? true
@@ -322,7 +344,9 @@ final class AppModel {
             loop: loop,
             fit: fit,
             clips: clips,
-            document: documentURL)
+            document: documentURL,
+            endFade: endFade,
+            titles: titles)
     }
 
     // MARK: 所要時間・タイムライン
@@ -493,6 +517,8 @@ final class AppModel {
         f.dwell = dwell
         f.transition = transition.rawValue
         f.transitionDuration = transitionDuration
+        f.endFade = endFade
+        f.titles = titles
         f.order = order.rawValue
         f.loop = loop
         f.recursive = recursive
@@ -509,6 +535,7 @@ final class AppModel {
         documentURL = nil
         ud.removeObject(forKey: Prefs.lastDocument)
         removedPaths = []
+        titles = []
         clips = []
         selectedClip = nil
         sources = []
@@ -528,6 +555,8 @@ final class AppModel {
             dwell = f.dwell
             transition = Transition(rawValue: f.transition) ?? .kenBurns
             transitionDuration = f.transitionDuration
+            endFade = f.endFade
+            titles = f.titles
             loop = f.loop
             fit = FitMode(rawValue: f.fit) ?? .fit
             exportSize = ExportSize(rawValue: f.exportSize) ?? .hd1080
@@ -682,6 +711,7 @@ final class AppModel {
 
     func startSlideshow(from preferred: Int? = nil) {
         guard !photos.isEmpty, window == nil else { return }
+        if isPreviewing { stopSlideshow() }
         let (list, first) = makePlaylist(startingAt: preferred)
         guard !list.isEmpty else { return }
         stopAudition()
@@ -700,7 +730,28 @@ final class AppModel {
         controller.start(at: first)
     }
 
-    func stopSlideshow() { window?.close() }
+    func stopSlideshow() {
+        if isPreviewing {
+            activeController?.stop()
+            activeController = nil
+            isPreviewing = false
+        } else {
+            window?.close()
+        }
+    }
+
+    /// プレビューのタブの中で流す（音声も鳴る）。全画面と同じ描画
+    func startPreview() {
+        guard !photos.isEmpty, window == nil, !isPreviewing else { return }
+        let (list, first) = makePlaylist()
+        guard !list.isEmpty else { return }
+        stopAudition()
+        let controller = SlideshowController(urls: list, settings: slideshowSettings, maxPixel: 1600)
+        controller.onFinish = { [weak self] in self?.stopSlideshow() }
+        activeController = controller
+        isPreviewing = true
+        controller.start(at: first)
+    }
 
     private func slideshowEnded() {
         window = nil

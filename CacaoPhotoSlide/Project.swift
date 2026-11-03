@@ -74,6 +74,8 @@ struct ProjectFile: Codable {
     var clips: [MusicClip] = []
     var includesPhotos = false        // true なら photos/ に写真のコピーがあり、それを写真の元にする
     var excluded: [String] = []       // パネルで外した写真（絶対パス）。流さず、書類にもコピーしない
+    var endFade: Double = 0           // 最後の写真のフェードアウト（秒、0 でなし）
+    var titles: [TitleItem] = []      // 画面に重ねる文字
     var manualOrder: [String] = []    // 順番が「手動」のときの並び（写真入りなら photos/ の相対パス）
 
     init() {}
@@ -96,6 +98,8 @@ struct ProjectFile: Codable {
         clips = try c.decodeIfPresent([MusicClip].self, forKey: .clips) ?? []
         includesPhotos = try c.decodeIfPresent(Bool.self, forKey: .includesPhotos) ?? false
         excluded = try c.decodeIfPresent([String].self, forKey: .excluded) ?? []
+        endFade = try c.decodeIfPresent(Double.self, forKey: .endFade) ?? 0
+        titles = try c.decodeIfPresent([TitleItem].self, forKey: .titles) ?? []
         manualOrder = try c.decodeIfPresent([String].self, forKey: .manualOrder) ?? []
     }
 }

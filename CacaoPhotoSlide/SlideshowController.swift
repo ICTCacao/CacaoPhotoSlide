@@ -162,6 +162,24 @@ final class SlideshowController {
         return min(1, max(0, clock.timeIntervalSince(slide.start) / total))
     }
 
+    /// 最後の写真を、フェードアウトしてから終わらせるか（繰り返さないときだけ）
+    private func fadesAtEnd(_ slide: Slide) -> Bool {
+        settings.endFade > 0 && !settings.loop && slide.index == count - 1
+    }
+
+    /// 最後の写真が終わるまでの秒数（フェードアウトするときは切り替えの長さぶん長い）
+    private func holdDuration(_ slide: Slide) -> TimeInterval {
+        settings.dwell + (fadesAtEnd(slide) ? settings.transitionDuration : 0)
+    }
+
+    /// 画面にかぶせる黒の濃さ（最後の写真のフェードアウト）
+    func blackout(at date: Date) -> Double {
+        guard let cur = current, fadesAtEnd(cur) else { return 0 }
+        let total = holdDuration(cur)
+        return TransitionMath.endFadeAlpha(elapsed: (pausedAt ?? date).timeIntervalSince(cur.start),
+                                           total: total, fade: min(total, settings.endFade))
+    }
+
     // MARK: 内部
 
     private func show(_ index: Int, direction: Int, manual: Bool, resync: Bool) {
@@ -202,7 +220,7 @@ final class SlideshowController {
     private func scheduleAdvance() {
         advanceTask?.cancel()
         guard pausedAt == nil, let cur = current else { return }
-        let remaining = max(0.05, settings.dwell - Date().timeIntervalSince(cur.start))
+        let remaining = max(0.05, holdDuration(cur) - Date().timeIntervalSince(cur.start))
         advanceTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(remaining))
             guard !Task.isCancelled else { return }
