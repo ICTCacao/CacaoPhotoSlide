@@ -101,6 +101,16 @@ struct CacaoPhotoSlideApp: App {
                     .keyboardShortcut(.escape, modifiers: [])
                     .disabled(model.selection.isEmpty)
                 Divider()
+                Button("拡大表示") { model.openViewer() }
+                    .keyboardShortcut("y")
+                    .disabled(model.photos.isEmpty || model.isShowing)
+                Button("選んだ写真を前へ動かす") { model.moveSelection(by: -1) }
+                    .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                    .disabled(model.selection.isEmpty)
+                Button("選んだ写真を後ろへ動かす") { model.moveSelection(by: 1) }
+                    .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                    .disabled(model.selection.isEmpty)
+                Divider()
                 Button("選んだ写真を外す") { model.removeSelectedPhotos() }
                     .keyboardShortcut(.delete, modifiers: [])
                     .disabled(model.selection.isEmpty)

@@ -74,6 +74,7 @@ struct ProjectFile: Codable {
     var clips: [MusicClip] = []
     var includesPhotos = false        // true なら photos/ に写真のコピーがあり、それを写真の元にする
     var excluded: [String] = []       // パネルで外した写真（絶対パス）。流さず、書類にもコピーしない
+    var manualOrder: [String] = []    // 順番が「手動」のときの並び（写真入りなら photos/ の相対パス）
 
     init() {}
 
@@ -95,6 +96,7 @@ struct ProjectFile: Codable {
         clips = try c.decodeIfPresent([MusicClip].self, forKey: .clips) ?? []
         includesPhotos = try c.decodeIfPresent(Bool.self, forKey: .includesPhotos) ?? false
         excluded = try c.decodeIfPresent([String].self, forKey: .excluded) ?? []
+        manualOrder = try c.decodeIfPresent([String].self, forKey: .manualOrder) ?? []
     }
 }
 
@@ -139,6 +141,9 @@ enum ProjectDocument {
             }
             file.includesPhotos = true
             file.selection = selected.compactMap { map[$0.standardizedFileURL] }.map { "photos/\($0)" }
+            if file.order == PhotoOrder.manual.rawValue {
+                file.manualOrder = photos.compactMap { map[$0.standardizedFileURL] }.map { "photos/\($0)" }
+            }
         } else {
             file.includesPhotos = false
             try? fm.removeItem(at: url.appendingPathComponent("photos"))

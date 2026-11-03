@@ -17,13 +17,14 @@ enum Transition: String, CaseIterable, Identifiable {
 
 /// 写真の順番
 enum PhotoOrder: String, CaseIterable, Identifiable {
-    case name, date, random
+    case name, date, random, manual
     var id: String { rawValue }
     var label: String {
         switch self {
         case .name: return "名前順"
         case .date: return "撮影日順"
         case .random: return "ランダム"
+        case .manual: return "手動"
         }
     }
 }
@@ -73,6 +74,7 @@ enum Prefs {
     static let transition = "transition"
     static let transitionDuration = "transitionDuration"
     static let order = "order"
+    static let manualOrder = "manualOrder"
     static let loop = "loop"
     static let recursive = "recursive"
     static let fit = "fit"

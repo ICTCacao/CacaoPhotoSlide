@@ -41,7 +41,18 @@ final class AppModel {
     var dwell: Double { didSet { ud.set(dwell, forKey: Prefs.dwell) } }
     var transition: Transition { didSet { ud.set(transition.rawValue, forKey: Prefs.transition) } }
     var transitionDuration: Double { didSet { ud.set(transitionDuration, forKey: Prefs.transitionDuration) } }
-    var order: PhotoOrder { didSet { ud.set(order.rawValue, forKey: Prefs.order); if order != oldValue { rescan() } } }
+    var order: PhotoOrder {
+        didSet {
+            ud.set(order.rawValue, forKey: Prefs.order)
+            guard order != oldValue else { return }
+            // 手動にしたときは今の並びをそのまま手動の並びにする（読み直さない）
+            if order == .manual { manualOrder = photos.map(\.path) } else { rescan() }
+        }
+    }
+    /// 手動で並べた順（写真の絶対パス）
+    var manualOrder: [String] = [] { didSet { ud.set(manualOrder, forKey: Prefs.manualOrder) } }
+    /// 拡大表示している写真（photos の番号）。nil なら閉じている
+    var viewerIndex: Int?
     var loop: Bool { didSet { ud.set(loop, forKey: Prefs.loop) } }
     var recursive: Bool { didSet { ud.set(recursive, forKey: Prefs.recursive); if recursive != oldValue { rescan() } } }
     var fit: FitMode { didSet { ud.set(fit.rawValue, forKey: Prefs.fit) } }
@@ -69,6 +80,7 @@ final class AppModel {
         transition = Transition(rawValue: ud.string(forKey: Prefs.transition) ?? "") ?? .kenBurns
         transitionDuration = ud.object(forKey: Prefs.transitionDuration) as? Double ?? 1.5
         order = PhotoOrder(rawValue: ud.string(forKey: Prefs.order) ?? "") ?? .name
+        manualOrder = ud.stringArray(forKey: Prefs.manualOrder) ?? []
         loop = ud.object(forKey: Prefs.loop) as? Bool ?? true
         recursive = ud.object(forKey: Prefs.recursive) as? Bool ?? true
         fit = FitMode(rawValue: ud.string(forKey: Prefs.fit) ?? "") ?? .fit
@@ -120,14 +132,15 @@ final class AppModel {
         thumbnails = [:]
         selection = []
         anchor = nil
+        viewerIndex = nil
         guard !sources.isEmpty else { photos = []; return }
-        let srcs = sources, rec = recursive, ord = order
+        let srcs = sources, rec = recursive, ord = order, man = manualOrder
         isScanning = true
         message = nil
         scanTask = Task {
             let removed = removedPaths
             let list = await Task.detached(priority: .userInitiated) {
-                PhotoLibrary.collect(from: srcs, recursive: rec, order: ord).filter { !removed.contains($0.path) }
+                PhotoLibrary.collect(from: srcs, recursive: rec, order: ord, manual: man).filter { !removed.contains($0.path) }
             }.value
             guard !Task.isCancelled else { return }
             photos = list
@@ -176,6 +189,7 @@ final class AppModel {
         photos = photos.enumerated().filter { !set.contains($0.offset) }.map(\.element)
         selection = []
         anchor = nil
+        if let v = viewerIndex { viewerIndex = photos.isEmpty ? nil : min(v, photos.count - 1) }
     }
 
     var removedCount: Int { removedPaths.count }
@@ -184,6 +198,69 @@ final class AppModel {
         guard !removedPaths.isEmpty else { return }
         removedPaths = []
         rescan()
+    }
+
+    // MARK: 並べ替え
+
+    /// moved の写真を、残りの写真の at 番目に差し込む。並べ替えたら順番は「手動」になる。選択は同じ写真のまま
+    private func reorder(_ moved: [Int], insertAt at: Int) {
+        let movedSet = Set(moved.filter { photos.indices.contains($0) })
+        guard !movedSet.isEmpty else { return }
+        let items = movedSet.sorted().map { photos[$0] }
+        var rest = photos.enumerated().filter { !movedSet.contains($0.offset) }.map(\.element)
+        rest.insert(contentsOf: items, at: min(max(0, at), rest.count))
+        guard rest != photos else { return }
+        let keepSelected = Set(selection.compactMap { photos.indices.contains($0) ? photos[$0] : nil })
+        photos = rest
+        selection = Set(rest.indices.filter { keepSelected.contains(rest[$0]) })
+        anchor = nil
+        if order != .manual { order = .manual }
+        manualOrder = photos.map(\.path)
+    }
+
+    /// ドラッグで target の位置へ。前へ動かすときは target の手前、後ろへ動かすときは target の後ろに入る
+    func movePhotos(_ indices: [Int], to target: Int) {
+        let moved = Set(indices.filter { photos.indices.contains($0) }).sorted()
+        guard let first = moved.first, photos.indices.contains(target), !moved.contains(target) else { return }
+        var at = target - moved.filter { $0 < target }.count
+        if first < target { at += 1 }
+        reorder(moved, insertAt: at)
+    }
+
+    /// 選んだ写真を 1 つ前／後ろへ
+    func moveSelection(by delta: Int) {
+        let moved = selection.sorted()
+        guard let first = moved.first, let last = moved.last else { return }
+        movePhotos(moved, to: delta < 0 ? first - 1 : last + 1)
+    }
+
+    /// 選んだ（または指定した）写真を先頭／最後へ
+    func moveToEdge(_ indices: [Int], front: Bool) {
+        reorder(indices, insertAt: front ? 0 : Int.max)
+    }
+
+    /// 1 枚を delta だけ動かして、動いた先の番号を返す（拡大表示の中から使う）
+    @discardableResult
+    func movePhoto(_ i: Int, by delta: Int) -> Int {
+        let target = min(max(0, i + delta), photos.count - 1)
+        guard photos.indices.contains(i), target != i else { return i }
+        movePhotos([i], to: target)
+        return target
+    }
+
+    // MARK: 拡大表示
+
+    /// 拡大表示を開く。番号がなければ選んでいる写真（なければ先頭）
+    func openViewer(_ i: Int? = nil) {
+        let idx = i ?? selection.min() ?? 0
+        guard photos.indices.contains(idx), !isShowing else { return }
+        viewerIndex = idx
+    }
+
+    func showViewer(_ i: Int) {
+        guard photos.indices.contains(i) else { return }
+        viewerIndex = i
+        if selection.count < 2 { selection = [i]; anchor = i }
     }
 
     // MARK: 写真の選択
@@ -424,6 +501,7 @@ final class AppModel {
         f.exportFps = exportFps
         f.clips = clips
         f.excluded = Array(removedPaths).sorted()
+        f.manualOrder = order == .manual ? manualOrder : []
         return f
     }
 
@@ -437,6 +515,7 @@ final class AppModel {
         photos = []
         thumbnails = [:]
         selection = []
+        viewerIndex = nil
         message = nil
     }
 
@@ -476,6 +555,7 @@ final class AppModel {
                 srcs = f.sources.map { URL(fileURLWithPath: $0) }.filter { FileManager.default.fileExists(atPath: $0.path) }
             }
             if order != newOrder { order = newOrder }
+            manualOrder = f.manualOrder.map { $0.hasPrefix("/") ? $0 : url.appendingPathComponent($0).path }
             if recursive != newRecursive { recursive = newRecursive }
             sources = srcs
             ud.set(srcs.map(\.path), forKey: Prefs.lastSources)
@@ -553,6 +633,9 @@ final class AppModel {
                 NSDocumentController.shared.noteNewRecentDocumentURL(url)
                 // 保存後は書類の中の相対パスで持つ
                 if let saved = try? ProjectDocument.load(from: url) {
+                    if includePhotos, order == .manual {
+                        manualOrder = saved.manualOrder.map { url.appendingPathComponent($0).path }
+                    }
                     let byID = Dictionary(uniqueKeysWithValues: saved.clips.map { ($0.id, $0) })
                     for c in clips { if let n = byID[c.id], let wf = waveforms[c.path] { waveforms[n.path] = wf } }
                     clips = clips.map { byID[$0.id] ?? $0 }

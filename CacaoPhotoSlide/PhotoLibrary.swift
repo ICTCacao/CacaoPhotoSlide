@@ -12,7 +12,7 @@ enum PhotoLibrary {
     }
 
     /// ドロップされたフォルダ・ファイルから画像だけを集める
-    static func collect(from sources: [URL], recursive: Bool, order: PhotoOrder) -> [URL] {
+    static func collect(from sources: [URL], recursive: Bool, order: PhotoOrder, manual: [String] = []) -> [URL] {
         let fm = FileManager.default
         var out: [URL] = []
         for src in sources {
@@ -30,15 +30,22 @@ enum PhotoLibrary {
                 out.append(src)
             }
         }
-        return sorted(out, by: order)
+        return sorted(out, by: order, manual: manual)
     }
 
-    static func sorted(_ urls: [URL], by order: PhotoOrder) -> [URL] {
+    static func sorted(_ urls: [URL], by order: PhotoOrder, manual: [String] = []) -> [URL] {
         func byName(_ a: URL, _ b: URL) -> Bool { a.path.localizedStandardCompare(b.path) == .orderedAscending }
         switch order {
         case .name, .random:
             // ランダムは開始のたびにシャッフルするので、ここでは名前順
             return urls.sorted(by: byName)
+        case .manual:
+            // 並べ替えた順。載っていない写真（後から増えたもの）は名前順で最後に
+            let rank = Dictionary(manual.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { a, _ in a })
+            return urls.sorted { a, b in
+                let ra = rank[a.path] ?? Int.max, rb = rank[b.path] ?? Int.max
+                return ra == rb ? byName(a, b) : ra < rb
+            }
         case .date:
             let dated = urls.map { ($0, captureDate($0)) }
             return dated.sorted { a, b in a.1 == b.1 ? byName(a.0, b.0) : a.1 < b.1 }.map(\.0)

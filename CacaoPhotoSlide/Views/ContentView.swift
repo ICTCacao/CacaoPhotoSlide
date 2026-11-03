@@ -5,6 +5,7 @@ struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var targeted = false
     @State private var lowerHeight: CGFloat = 0
+    @State private var dropTarget: Int?      // 並べ替えのドラッグで、差し込み先に光らせる写真
 
     private struct LowerHeightKey: PreferenceKey {
         static var defaultValue: CGFloat = 0
@@ -36,6 +37,12 @@ struct ContentView: View {
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in handleDrop(providers) }
         .sheet(isPresented: Bindable(model).showExport) {
             ExportSheet().environment(model)
+        }
+        .sheet(isPresented: Binding(
+            get: { model.viewerIndex != nil },
+            set: { if !$0 { model.viewerIndex = nil } })
+        ) {
+            PhotoViewerView().environment(model)
         }
     }
 
@@ -92,6 +99,14 @@ struct ContentView: View {
                     Button("外した \(model.removedCount) 枚を戻す") { model.restoreRemovedPhotos() }
                         .controlSize(.small)
                 }
+                Button {
+                    model.openViewer()
+                } label: {
+                    Label("拡大表示", systemImage: "magnifyingglass")
+                }
+                .controlSize(.small)
+                .disabled(model.photos.isEmpty)
+                .help("選んだ写真（なければ先頭）を大きく見る（⌘Y）")
                 Button("開く…") { model.openPanel() }
             }
             HStack(spacing: 6) {
@@ -107,7 +122,7 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                     .help("選択を解除して、全部を最初から")
                 } else {
-                    Text("クリック: その写真から開始　⌘ / ⇧クリック: 複数を選んで、その写真だけを流す　ダブルクリック: すぐ開始　右クリックや Delete: 写真を外す")
+                    Text("クリック: その写真から開始　⌘ / ⇧クリック: 複数を選んで、その写真だけを流す　ダブルクリック: すぐ開始　ドラッグ: 並べ替え　右クリックや Delete: 写真を外す")
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
@@ -154,9 +169,22 @@ struct ContentView: View {
                         .padding(3)
                 }
             }
+            .overlay(alignment: .leading) {
+                if dropTarget == i {
+                    Capsule().fill(Color.accentColor).frame(width: 4, height: 64).offset(x: -5)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .draggable(dragPayload(i))
+        .dropDestination(for: String.self) { items, _ in
+            let moved = items.flatMap { $0.split(separator: ",").compactMap { Int($0) } }
+            model.movePhotos(moved, to: i)
+            return !moved.isEmpty
+        } isTargeted: { over in
+            if over { dropTarget = i } else if dropTarget == i { dropTarget = nil }
+        }
         .simultaneousGesture(TapGesture(count: 2).onEnded {
             if model.selection.count < 2 { model.selection = [i] }
             model.startSlideshow(from: i)
@@ -168,10 +196,22 @@ struct ContentView: View {
             } else {
                 Button("この写真を外す") { model.removePhoto(i) }
             }
+            Button("拡大して見る") { model.showViewer(i) }
+            Divider()
+            let targets = model.selection.contains(i) ? model.selection.sorted() : [i]
+            Button("先頭へ移動") { model.moveToEdge(targets, front: true) }
+            Button("最後へ移動") { model.moveToEdge(targets, front: false) }
+            Divider()
             Button("Finder で表示") { NSWorkspace.shared.activateFileViewerSelecting([model.photos[i]]) }
         }
         .onAppear { model.requestThumbnail(i) }
         .onDisappear { model.cancelThumbnail(i) }
+    }
+
+    /// ドラッグで運ぶ写真の番号（選んだ写真の 1 枚をつかんだら、選んだ写真ぜんぶ）
+    private func dragPayload(_ i: Int) -> String {
+        let idx = model.selection.contains(i) && model.selection.count >= 2 ? model.selection.sorted() : [i]
+        return idx.map(String.init).joined(separator: ",")
     }
 
     private var sourceTitle: String {
@@ -214,6 +254,7 @@ struct ContentView: View {
                 ForEach(PhotoOrder.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
+            .help("手動: 写真をドラッグして並べた順。ドラッグすると自動で手動になります")
             Picker("表示", selection: model.fit) {
                 ForEach(FitMode.allCases) { Text($0.label).tag($0) }
             }
